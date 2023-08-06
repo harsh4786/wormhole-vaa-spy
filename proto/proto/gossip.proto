@@ -1,0 +1,231 @@
+syntax = "proto3";
+
+package gossip;
+
+message GossipMessage {
+  oneof message {
+    SignedObservation signed_observation = 2;
+    SignedHeartbeat signed_heartbeat = 3;
+    SignedVAAWithQuorum signed_vaa_with_quorum = 4;
+    SignedObservationRequest signed_observation_request = 5;
+    SignedBatchObservation signed_batch_observation = 6;
+    SignedBatchVAAWithQuorum signed_batch_vaa_with_quorum = 7;
+    SignedChainGovernorConfig signed_chain_governor_config = 8;
+    SignedChainGovernorStatus signed_chain_governor_status = 9;
+  }
+}
+
+message SignedHeartbeat {
+  // Serialized Heartbeat message.
+  bytes heartbeat = 1;
+
+  // ECDSA signature using the node's guardian public key.
+  bytes signature = 2;
+
+  // Guardian address that signed this payload (truncated Eth address).
+  // This is already contained in Heartbeat, however, we want to verify
+  // the payload before we deserialize it.
+  bytes guardian_addr = 3;
+}
+
+// P2P gossip heartbeats for network introspection purposes.
+message Heartbeat {
+  // The node's arbitrarily chosen, untrusted nodeName.
+  string node_name = 1;
+  // A monotonic counter that resets to zero on startup.
+  int64 counter = 2;
+  // UNIX wall time.
+  int64 timestamp = 3;
+
+  message Network {
+    // Canonical chain ID.
+    uint32 id = 1;
+    // Consensus height of the node.
+    int64 height = 2;
+    // Chain-specific human-readable representation of the bridge contract address.
+    string contract_address = 3;
+    // Connection error count
+    uint64 error_count = 4;
+  }
+  repeated Network networks = 4;
+
+  // Human-readable representation of the current bridge node release.
+  string version = 5;
+
+  // Human-readable representation of the guardian key's address.
+  string guardian_addr = 6;
+
+  // UNIX boot timestamp.
+  int64 boot_timestamp = 7;
+
+  // List of features enabled on this node.
+  repeated string features = 8;
+
+  // (Optional) libp2p address of this node.
+  bytes p2p_node_id = 9;
+}
+
+// A SignedObservation is a signed statement by a given guardian node
+// that they observed a given event.
+//
+// Observations always result from an external, final event being observed.
+// Examples are emitted messages in finalized blocks on a block or guardian set changes
+// injected by node operators after reaching off-chain consensus.
+//
+// The event is uniquely identified by its hashed (tx_hash, nonce, values...) tuple.
+//
+// Other nodes will verify the signature. Once any node has observed a quorum of
+// guardians submitting valid signatures for a given hash, they can be assembled into a VAA.
+//
+// Messages without valid signature are dropped unceremoniously.
+message SignedObservation {
+  // Guardian pubkey as truncated eth address.
+  bytes addr = 1;
+  // The observation's deterministic, unique hash.
+  bytes hash = 2;
+  // ECSDA signature of the hash using the node's guardian key.
+  bytes signature = 3;
+  // Transaction hash this observation was made from.
+  // Optional, included for observability.
+  bytes tx_hash = 4;
+  // Message ID (chain/emitter/seq) for this observation.
+  // Optional, included for observability.
+  string message_id = 5;
+}
+
+// A SignedVAAWithQuorum message is sent by nodes whenever one of the VAAs they observed
+// reached a 2/3+ quorum to be considered valid. Signed VAAs are broadcasted to the gossip
+// network to allow nodes to persist them even if they failed to observe the signature.
+message SignedVAAWithQuorum {
+  bytes vaa = 1;
+}
+
+// Any guardian can send a SignedObservationRequest to the network to request
+// all guardians to re-observe a given transaction. This is rate-limited to one
+// request per second per guardian to prevent abuse.
+//
+// In the current implementation, this is only implemented for Solana.
+// For Solana, the tx_hash is the account address of the transaction's message account.
+message SignedObservationRequest {
+  // Serialized observation request.
+  bytes observation_request = 1;
+
+  // Signature
+  bytes signature = 2;
+  bytes guardian_addr = 3;
+}
+
+message ObservationRequest {
+  uint32 chain_id = 1;
+  bytes tx_hash = 2;
+}
+
+// A SignedBatchObservation is a signed statement by a given guardian node
+// that they observed a series of messages originating from a transaction.
+//
+// BatcheObervations are emitted when all the Observations from a tx reach quorum.
+//
+// The event is uniquely identified by its hash (made from hashing all the
+// individual Observation hashes).
+//
+// Messages without valid signature are dropped unceremoniously.
+message SignedBatchObservation {
+  // Guardian pubkey as truncated eth address.
+  bytes addr = 1;
+  // The observation batch's deterministic, unique hash.
+  bytes hash = 2;
+  // ECSDA signature of the hash using the node's guardian key.
+  bytes signature = 3;
+  // Unique identifier of the transaction that produced the observation.
+  bytes tx_id = 4;
+  // Chain ID for this observation.
+  uint32 chain_id = 5;
+  // Nonce of the messages in the batch.
+  uint32 nonce = 6;
+  // Batch ID - emitterChain/transactionID/nonce
+  string batch_id = 7;
+}
+
+
+message SignedBatchVAAWithQuorum {
+  // batch_vaa bytes are the binary encoding of the BatchVAA
+  bytes batch_vaa = 1;
+  // Emitter Chain ID of the messages
+  uint32 chain_id = 2;
+  // Transaction identifier of the observation
+  bytes tx_id = 3;
+  // Nonce of the messages in the batch
+  uint32 nonce = 4;
+  // Batch ID - emitterChain/transactionID/nonce string, for convenience
+  string batch_id = 5;
+}
+
+// This message is published every five minutes.
+message SignedChainGovernorConfig {
+  // Serialized ChainGovernorConfig message.
+  bytes config = 1;
+
+  // ECDSA signature using the node's guardian key.
+  bytes signature = 2;
+
+  // Guardian address that signed this payload (truncated Eth address).
+  bytes guardian_addr = 3;
+}
+
+message ChainGovernorConfig {
+  message Chain {
+    uint32 chain_id = 1;
+    uint64 notional_limit = 2;
+    uint64 big_transaction_size = 3;
+  }
+
+  message Token {
+    uint32 origin_chain_id = 1;
+    string origin_address = 2; // human-readable hex-encoded (leading 0x)
+    float price = 3;
+  }
+
+  string node_name = 1;
+  int64 counter = 2;
+  int64 timestamp = 3;
+  repeated Chain chains = 4;
+  repeated Token tokens = 5;
+}
+
+// This message is published every minute.
+message SignedChainGovernorStatus {
+  // Serialized ChainGovernorStatus message.
+  bytes status = 1;
+
+  // ECDSA signature using the node's guardian key.
+  bytes signature = 2;
+
+  // Guardian address that signed this payload (truncated Eth address).
+  bytes guardian_addr = 3;
+}
+
+message ChainGovernorStatus {
+  message EnqueuedVAA {
+    uint64 sequence = 1; // Chain and emitter address are assumed.
+    uint32 release_time = 2;
+    uint64 notional_value = 3;
+    string tx_hash = 4;
+  }
+
+  message Emitter {
+    string emitter_address = 1; // human-readable hex-encoded (leading 0x)
+    uint64 total_enqueued_vaas = 2;
+    repeated EnqueuedVAA enqueued_vaas = 3; // Only the first 20 will be included.
+  }
+
+  message Chain {
+    uint32 chain_id = 1;
+    uint64 remaining_available_notional = 2;
+    repeated Emitter emitters = 3;
+  }
+
+  string node_name = 1;
+  int64 counter = 2;
+  int64 timestamp = 3;
+  repeated Chain chains = 4;
+}

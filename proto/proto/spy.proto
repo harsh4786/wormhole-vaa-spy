@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package spy;
+
+import "annotations.proto";
+import "gossip.proto";
+import "publicrpc.proto";
+
+// SpyRPCService exposes a gossip introspection service, allowing sniffing of gossip messages.
+service SpyRPCService {
+  // SubscribeSignedVAA returns a stream of signed VAA messages received on the network.
+  rpc SubscribeSignedVAA (SubscribeSignedVAARequest) returns (stream SubscribeSignedVAAResponse) {
+    option (google.api.http) = {
+      post: "/v1:subscribe_signed_vaa"
+      body: "*"
+    };
+  }
+  // SubscribeSignedBatchVAA returns a stream of signed VAA messages, by type, received on the network.
+  rpc SubscribeSignedVAAByType (SubscribeSignedVAAByTypeRequest) returns (stream SubscribeSignedVAAByTypeResponse) {
+    option (google.api.http) = {
+      post: "/v1:subscribe_signed_vaa_by_type"
+      body: "*"
+    };
+  }
+}
+
+// A MessageFilter represents an exact match for an emitter.
+message EmitterFilter {
+  // Source chain
+  publicrpc.ChainID chain_id = 1;
+  // Hex-encoded (without leading 0x) emitter address.
+  string emitter_address = 2;
+}
+
+
+message BatchFilter {
+  // Source chain
+  publicrpc.ChainID chain_id = 1;
+  // Native transaction identifier bytes.
+  bytes tx_id = 2;
+  // Nonce of the messages in the batch.
+  uint32 nonce = 3;
+}
+
+message BatchTransactionFilter {
+  // Source chain
+  publicrpc.ChainID chain_id = 1;
+  // Native transaction identifier bytes.
+  bytes tx_id = 2;
+}
+
+message FilterEntry {
+  oneof filter {
+    EmitterFilter emitter_filter = 1;
+    BatchFilter batch_filter = 2;
+    BatchTransactionFilter batch_transaction_filter = 3;
+  }
+}
+
+message SubscribeSignedVAARequest {
+  // List of filters to apply to the stream (OR).
+  // If empty, all messages are streamed.
+  repeated FilterEntry filters = 1;
+}
+
+message SubscribeSignedVAAByTypeRequest {
+  // List of filters to apply to the stream (OR).
+  // If empty, all messages are streamed.
+  repeated FilterEntry filters = 1;
+}
+
+message SubscribeSignedVAAResponse {
+  // Raw VAA bytes
+  bytes vaa_bytes = 1;
+}
+
+message SubscribeSignedVAAByTypeResponse {
+  oneof vaa_type {
+    gossip.SignedVAAWithQuorum signed_vaa = 1;
+    gossip.SignedBatchVAAWithQuorum signed_batch_vaa = 2;
+  }
+}
