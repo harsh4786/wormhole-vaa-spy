@@ -1,0 +1,20 @@
+[package]
+name = "wormhole-spy-cli"
+version = "0.0.1"
+authors = ["Harsh Patel"]
+description = "A cli to start a wormhole spy node and connect to the wormhole guardian network"
+edition = "2021"
+publish = false
+
+
+
+[dependencies]
+clap = { version = "^4.3", features = ["derive", "env"] }
+clap_lex = "=0.5.0"
+futures-util = "0.3.28"
+wormhole-protos = { path = "../proto" }
+prost-types = "0.11.9"
+tokio = { version = "~1.29.1", features = ["rt-multi-thread"] }
+toml_datetime = "=0.6.3" 
+tonic = { version = "0.9.2", features = ["tls", "tls-roots", "tls-webpki-roots"] }
+uuid = { version = "1.4.1", features = ["v4"] }
