@@ -1,9 +1,5 @@
 use clap::{Parser, Subcommand, Arg, Command};
-
-
-
-
-
+use wormhole_protos::modules::gossip::*;
 
 
 #[tokio::main]
