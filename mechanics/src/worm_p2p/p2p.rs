@@ -1,5 +1,7 @@
 #![allow(unused_variables)]
+use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
+use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::futures::future::Either;
@@ -14,8 +16,8 @@ use libp2p::{
     swarm::NetworkBehaviour,
     quic,
     multiaddr::Multiaddr,
+    gossipsub,
     core::upgrade,
-    tls,
 };
 use clap::Parser;
 use tokio::sync::mpsc::{Sender, Receiver};
@@ -51,15 +53,13 @@ impl Default for Components{
 async fn run_p2p(
     obsvC: Sender<SignedObservation>,
     obsvReqC: Sender<ObservationRequest>,
-
+    gossipSendC: Receiver<Vec<u8>>,
     signedInC: Sender<SignedVaaWithQuorum>,
     privKey: Keypair,
     networkID: &str,
     bootstrap: &str,
     nodeName: &str,
-    
-    
-
+    components: Components,
 )-> Result<(), Box<dyn Error>>{
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
@@ -70,16 +70,41 @@ async fn run_p2p(
     let kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
     
     let conn_lim =  ConnectionLimits::default();
+
+    // message id function for gossip
+    let message_id_fn = |message: &gossipsub::Message| {
+        let mut s = DefaultHasher::new();
+        message.data.hash(&mut s);
+        gossipsub::MessageId::from(s.finish().to_string())
+    };
+    // Set a custom gossipsub configuration
+    let gossipsub_config = gossipsub::ConfigBuilder::default()
+        .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
+        .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
+        .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
+        .build()
+        .expect("Valid config");
+
     let behaviour = Behaviour{
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         kad: kad_behaviour,
-        limits: connection_limits::Behaviour::new(conn_lim.with_max_established(Some(400)))
+        limits: connection_limits::Behaviour::new(conn_lim.with_max_established(Some(400))),
+        gossip: gossipsub::Behaviour::new(
+            gossipsub::MessageAuthenticity::Signed(local_key.clone()),
+            gossipsub_config,
+        )
+        .expect("Correct configuration")
     };
     
     let quic_transport = quic::async_std::Transport::new(quic::Config::new(&local_key));
     let transport =  quic_transport.map(|either_output, _| match either_output {
         (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
     }).boxed();
+
+
+    
+
+     
 
     let swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
     // swarm.listen_on(addr)
@@ -93,6 +118,7 @@ struct Behaviour{
     relay: libp2p::relay::Behaviour,
     kad: libp2p::kad::Kademlia<MemoryStore>,
     limits: libp2p::connection_limits::Behaviour,
+    gossip: gossipsub::Behaviour,
 }
 
 
