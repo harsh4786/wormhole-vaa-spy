@@ -4,10 +4,9 @@ use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use libp2p::core::muxing::StreamMuxerBox;
-use libp2p::futures::future::Either;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
-use libp2p::{relay, Transport, connection_limits};
+use libp2p::{relay, Transport, connection_limits, Swarm};
 use libp2p::swarm::SwarmBuilder;
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
@@ -17,7 +16,6 @@ use libp2p::{
     quic,
     multiaddr::Multiaddr,
     gossipsub,
-    core::upgrade,
 };
 use clap::Parser;
 use tokio::sync::mpsc::{Sender, Receiver};
@@ -67,8 +65,9 @@ async fn run_p2p(
     let mut cfg = KademliaConfig::default();
     cfg.set_query_timeout(Duration::from_secs(5 * 60));
     let store = MemoryStore::new(local_peer_id);
-    let kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
-    
+    let mut kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
+    kad_behaviour.set_mode(Some(libp2p::kad::Mode::Server));
+
     let conn_lim =  ConnectionLimits::default();
 
     // message id function for gossip
@@ -101,14 +100,18 @@ async fn run_p2p(
         (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
     }).boxed();
 
-
-    
-
+    let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
+    let topic =  gossipsub::IdentTopic::new( format!("{}/{}", networkID, "broadcast"));
+    // behaviour.gossip.subscribe(topic)
      
 
-    let swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
-    // swarm.listen_on(addr)
+    let mut swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
+    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
+    swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
     
+    for i in bootstrappers.0.iter(){
+        swarm.behaviour_mut().kad.add_address(i, format!("/{}", networkID.to_string()).parse()?);
+    }
     Ok(())
 }
 
@@ -168,7 +171,14 @@ pub fn bootstrap_addrs(
     (bootstrappers, is_bootstrap_node)
 }
 
-
+pub fn connect_peers(
+    peers: Vec<PeerId>,
+    swarm: &mut Swarm<Behaviour>,
+) {
+    for peer in peers.iter(){
+        swarm.dial(*peer).expect("connection failed")
+    }
+}
 
 #[derive(Debug, Parser)]
 struct Args{

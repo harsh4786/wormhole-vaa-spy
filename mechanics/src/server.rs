@@ -4,7 +4,7 @@ use uuid::Uuid;
 use wormhole_protos::modules::{
     spy::{SubscribeSignedVaaRequest, SubscribeSignedVaaResponse, 
         SubscribeSignedVaaByTypeRequest, SubscribeSignedVaaByTypeResponse, 
-        spy_rpc_service_server::SpyRpcService, filter_entry::Filter,
+        spy_rpc_service_server::SpyRpcService, filter_entry::{Filter, self},
         spy_rpc_service_server::SpyRpcServiceServer, FilterEntry,
     
     },
@@ -99,7 +99,7 @@ impl SpyRpcService for SpyRpcServiceProvider{
             Status::internal("error adding subscription")
         });
 
-        let s = req.into_inner().filters.iter().for_each(|f| {
+        let s = req.into_inner().filters.iter().for_each(|f: &FilterEntry| {
             if let Some(fil) = f.filter{
                 match fil {
                     Filter::BatchFilter(b) => Ok({
@@ -124,6 +124,11 @@ impl SpyRpcService for SpyRpcServiceProvider{
                 Err(Status::new(Code::InvalidArgument, "Invalid Filter type"));
             }
         });
+        // let s =  req.into_inner().filters.iter().find_map(|filter_entry|{
+        //     if let Some(f) =  filter_entry.filter {
+                
+        //     }
+        // })
         // for f in req.get_ref().filters.iter(){
         //     if let Some(fentry) = f.filter{
         //         match fentry{
