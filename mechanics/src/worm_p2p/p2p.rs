@@ -7,7 +7,7 @@ use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
 use libp2p::{relay, Transport, connection_limits, Swarm};
-use libp2p::swarm::SwarmBuilder;
+use libp2p::swarm::{SwarmBuilder, DialError};
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
     connection_limits::ConnectionLimits,
@@ -81,6 +81,7 @@ async fn run_p2p(
         .heartbeat_interval(Duration::from_secs(10)) // This is set to aid debugging by not cluttering the log space
         .validation_mode(gossipsub::ValidationMode::Strict) // This sets the kind of message validation. The default is Strict (enforce message signing)
         .message_id_fn(message_id_fn) // content-address messages. No two messages of the same content will be propagated.
+        .max_transmit_size(1024)
         .build()
         .expect("Valid config");
 
@@ -101,9 +102,9 @@ async fn run_p2p(
     }).boxed();
 
     let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
-    let topic =  gossipsub::IdentTopic::new( format!("{}/{}", networkID, "broadcast"));
+    let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
     // behaviour.gossip.subscribe(topic)
-     
+
 
     let mut swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
@@ -112,6 +113,11 @@ async fn run_p2p(
     for i in bootstrappers.0.iter(){
         swarm.behaviour_mut().kad.add_address(i, format!("/{}", networkID.to_string()).parse()?);
     }
+    //how many successful bootstrap connections?
+    let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
+    tokio::spawn(async move {
+
+    });
     Ok(())
 }
 
@@ -174,10 +180,15 @@ pub fn bootstrap_addrs(
 pub fn connect_peers(
     peers: Vec<PeerId>,
     swarm: &mut Swarm<Behaviour>,
-) {
-    for peer in peers.iter(){
-        swarm.dial(*peer).expect("connection failed")
+) -> Result<usize, DialError> {
+    let mut success_counter = 0usize;
+    for &peer in &peers {
+        match swarm.dial(peer) {
+            Ok(_) => success_counter += 1,
+            Err(_) => return Err(DialError::Aborted),
+        }
     }
+    Ok(success_counter)
 }
 
 #[derive(Debug, Parser)]
