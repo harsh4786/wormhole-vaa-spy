@@ -18,15 +18,21 @@ use libp2p::{
     gossipsub,
 };
 use clap::Parser;
-use tokio::sync::mpsc::{Sender, Receiver};
-use wormhole_protos::modules::gossip::{SignedObservation, ObservationRequest, SignedVaaWithQuorum};
+// use tokio::sync::mpsc::{Sender, Receiver};
+use wormhole_protos::modules::gossip::{SignedObservation, ObservationRequest, SignedVaaWithQuorum, SignedObservationRequest, GossipMessage, gossip_message::Message as MessageEnum};
 use log::{error, info};
 use std::str::FromStr;
+use crossbeam_channel::{Sender, Receiver};
+use ed25519_dalek::{Keypair as EdKeypair, Signer};
+use prost::Message;
+use sha3::{Digest,Keccak256};
 // use tonic::codegen::ok;
 
 
 
 pub const DEFAULT_PORT: usize = 8999;
+pub const SIGNED_OBSERVATION_REQUEST_PREFIX: &[u8] = b"signed_observation_request|";
+
 
 #[derive(Debug, Clone)]
 pub struct Components{
@@ -51,9 +57,11 @@ impl Default for Components{
 async fn run_p2p(
     obsvC: Sender<SignedObservation>,
     obsvReqC: Sender<ObservationRequest>,
+    obsvReqSendC: Receiver<ObservationRequest>,
     gossipSendC: Receiver<Vec<u8>>,
     signedInC: Sender<SignedVaaWithQuorum>,
     privKey: Keypair,
+    gk: EdKeypair,
     networkID: &str,
     bootstrap: &str,
     nodeName: &str,
@@ -85,7 +93,7 @@ async fn run_p2p(
         .build()
         .expect("Valid config");
 
-    let behaviour = Behaviour{
+    let mut behaviour = Behaviour{
         relay: relay::Behaviour::new(local_peer_id, Default::default()),
         kad: kad_behaviour,
         limits: connection_limits::Behaviour::new(conn_lim.with_max_established(Some(400))),
@@ -103,7 +111,7 @@ async fn run_p2p(
 
     let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
     let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
-    // behaviour.gossip.subscribe(topic)
+    behaviour.gossip.subscribe(&topic);
 
 
     let mut swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
@@ -115,7 +123,49 @@ async fn run_p2p(
     }
     //how many successful bootstrap connections?
     let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
-    tokio::spawn(async move {
+    
+    tokio::task::spawn(async move {
+        loop{
+            crossbeam_channel::select! {
+                recv(gossipSendC) -> gossip_send =>{
+                    if let Err(e) =  swarm.behaviour_mut().gossip.publish(topic.clone(), gossip_send.expect("failed to receive")){
+                        println!("Publish Error: {}", e);
+                    }
+                },
+                recv(obsvReqSendC) -> observation_request => {
+                    let mut buf = [0u8; 512];
+                    let mut slice = &mut buf[..];
+                    observation_request.clone().unwrap().encode(&mut slice);
+                 
+                    let mut hasher = Keccak256::new();
+                    hasher.update(slice);
+                    let hash = hasher.finalize();
+                    let signature =  gk.try_sign(&hash).expect("failed to sign hash");
+                    let sreq = SignedObservationRequest {
+                        observation_request: buf.to_vec(),
+                        signature: signature.to_bytes().to_vec(),
+                        guardian_addr: gk.public.to_bytes().to_vec()
+                    };
+                    let envelope = GossipMessage{
+                        message: Some(MessageEnum::SignedObservationRequest(sreq))
+                    };
+                    let mut e_buf = [0u8; 512];
+                    let mut e_slice = &mut e_buf[..];
+                    let serialized_envelope = match envelope.encode(&mut e_slice){
+                        Ok(()) =>  {
+                            println!("{:?}", e_slice);
+                        },
+                        Err(e) => panic!("Failed to encode message: {:?}", e),
+                    };
+                    obsvReqC.send(observation_request.clone().unwrap()).expect("failed to send the request in the queue");
+                    swarm.behaviour_mut().gossip.publish(topic.clone(), e_slice);
+
+                }
+             }
+        }
+    });
+
+    tokio::task::spawn(async move {   
 
     });
     Ok(())
