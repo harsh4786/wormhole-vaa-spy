@@ -33,6 +33,15 @@ use sha3::{Digest,Keccak256};
 pub const DEFAULT_PORT: usize = 8999;
 pub const SIGNED_OBSERVATION_REQUEST_PREFIX: &[u8] = b"signed_observation_request|";
 
+pub const MAINNET_BOOTSTRAP_PEERS: [&str; 2] = [
+    "12D3KooWQp644DK27fd3d4Km3jr7gHiuJJ5ZGmy8hH4py7fP4FP7",
+    "12D3KooWNQ9tVrcb64tw6bNs2CaNrUGPM7yRrKvBBheQ5yCyPHKC"
+];
+
+pub const TESTNET_BOOTSTRAP_PEER: &str = "12D3KooWAkB9ynDur1Jtoa97LBUp8RXdhzS5uHgAfdTquJbrbN7i";
+
+pub const MAINNET_BOOTSTRAP_MULTIADDR: &str = "/dns4/wormhole-mainnet-v2-bootstrap.certus.one/udp/8999/quic";
+pub const TESTNET_BOOTSTRAP_MULTIADDR: &str = "/dns4/wormhole-testnet-v2-bootstrap.certus.one/udp/8999/quic";
 
 #[derive(Debug, Clone)]
 pub struct Components{
@@ -118,8 +127,9 @@ async fn run_p2p(
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
     swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
     
+    //Change from mainnet to testnet and vice-versa here.
     for i in bootstrappers.0.iter(){
-        swarm.behaviour_mut().kad.add_address(i, format!("/{}", networkID.to_string()).parse()?);
+        swarm.behaviour_mut().kad.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
     }
     //how many successful bootstrap connections?
     let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
