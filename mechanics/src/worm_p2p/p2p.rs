@@ -6,7 +6,7 @@ use std::time::Duration;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
-use libp2p::{relay, Transport, connection_limits, Swarm};
+use libp2p::{relay, Transport, connection_limits, Swarm, StreamProtocol};
 use libp2p::swarm::{SwarmBuilder, DialError};
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
@@ -78,11 +78,20 @@ async fn run_p2p(
 )-> Result<(), Box<dyn Error>>{
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
+    let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
     //setup Kademlia
-    let mut cfg = KademliaConfig::default();
+    
+    
+    let stream_protocol = StreamProtocol::new("/wormhole/mainnet/2");
+    let mut cfg = KademliaConfig::default().set_protocol_names(vec![stream_protocol]).to_owned();
     cfg.set_query_timeout(Duration::from_secs(5 * 60));
     let store = MemoryStore::new(local_peer_id);
     let mut kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
+
+    //Change from mainnet to testnet and vice-versa here.
+    for i in bootstrappers.0.iter(){
+        kad_behaviour.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
+    }
     kad_behaviour.set_mode(Some(libp2p::kad::Mode::Server));
 
     let conn_lim =  ConnectionLimits::default();
@@ -117,20 +126,15 @@ async fn run_p2p(
     let transport =  quic_transport.map(|either_output, _| match either_output {
         (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
     }).boxed();
-
-    let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
+    
     let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
     behaviour.gossip.subscribe(&topic);
-
-
     let mut swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
-    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
-    swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
+
+
+    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", components.port).parse()?)?;
+    swarm.listen_on(format!("/ip6/::/udp/{}/quic-v1", components.port).parse()?)?;
     
-    //Change from mainnet to testnet and vice-versa here.
-    for i in bootstrappers.0.iter(){
-        swarm.behaviour_mut().kad.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
-    }
     //how many successful bootstrap connections?
     let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
     
@@ -174,10 +178,10 @@ async fn run_p2p(
              }
         }
     });
+    
+    loop {
 
-    tokio::task::spawn(async move {   
-
-    });
+    }
     Ok(())
 }
 
