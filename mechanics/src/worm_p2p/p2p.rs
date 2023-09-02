@@ -7,7 +7,8 @@ use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
 use libp2p::{relay, Transport, connection_limits, Swarm, StreamProtocol};
-use libp2p::swarm::{SwarmBuilder, DialError};
+// use libp2p::swarm::{SwarmBuilder, DialError};
+use libp2p_swarm::{SwarmBuilder, DialError};
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
     connection_limits::ConnectionLimits,
@@ -121,15 +122,16 @@ async fn run_p2p(
         )
         .expect("Correct configuration")
     };
-    
-    let quic_transport = quic::async_std::Transport::new(quic::Config::new(&local_key));
+    let mut quic_config = quic::Config::new(&local_key);
+    quic_config.support_draft_29 = true;
+    let quic_transport = quic::async_std::Transport::new(quic_config);
     let transport =  quic_transport.map(|either_output, _| match either_output {
         (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
     }).boxed();
     
     let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
     behaviour.gossip.subscribe(&topic);
-    let mut swarm = SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build();
+    let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
 
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", components.port).parse()?)?;
@@ -180,7 +182,7 @@ async fn run_p2p(
     });
     
     loop {
-
+        selec
     }
     Ok(())
 }

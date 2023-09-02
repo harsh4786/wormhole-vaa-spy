@@ -18,7 +18,8 @@ crossbeam-channel = "0.5.8"
 uuid = {version = "1.4.1", features = ["v4", "fast-rng"]}
 log = "0.4.20"
 clap = { version = "4.3.12", features = ["derive"] }
-libp2p = {git = "https://github.com/libp2p/rust-libp2p", features = ["async-std", "noise", "macros", "ping", "tcp", "identify", "yamux", "relay", "kad", "quic", "gossipsub",]}
+libp2p = {version = "^0.50", features = ["async-std", "noise", "macros", "ping", "tcp", "identify", "yamux", "relay", "kad", "quic", "gossipsub",]}
+libp2p-swarm = {version = "^0.43", features = ["tokio"]}
 ed25519-dalek = "^1.0"
 sha3 = "^0.10"
 bincode = "^1.3"
