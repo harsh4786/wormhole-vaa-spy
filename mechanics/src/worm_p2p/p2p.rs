@@ -88,12 +88,13 @@ async fn run_p2p(
     cfg.set_query_timeout(Duration::from_secs(5 * 60));
     let store = MemoryStore::new(local_peer_id);
     let mut kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
+    kad_behaviour.set_mode(Some(libp2p::kad::Mode::Server));
 
     //Change from mainnet to testnet and vice-versa here.
     for i in bootstrappers.0.iter(){
         kad_behaviour.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
     }
-    kad_behaviour.set_mode(Some(libp2p::kad::Mode::Server));
+    kad_behaviour.bootstrap();
 
     let conn_lim =  ConnectionLimits::default();
 
@@ -134,8 +135,8 @@ async fn run_p2p(
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
 
-    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic-v1", components.port).parse()?)?;
-    swarm.listen_on(format!("/ip6/::/udp/{}/quic-v1", components.port).parse()?)?;
+    swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
+    swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
     
     //how many successful bootstrap connections?
     let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
