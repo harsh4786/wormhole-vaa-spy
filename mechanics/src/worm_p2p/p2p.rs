@@ -3,12 +3,12 @@ use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
+use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
-use libp2p::{relay, Transport, connection_limits, Swarm, StreamProtocol};
-// use libp2p::swarm::{SwarmBuilder, DialError};
-use libp2p_swarm::{SwarmBuilder, DialError};
+use libp2p::{Transport, connection_limits, Swarm, StreamProtocol};
+use libp2p::swarm::{SwarmBuilder, DialError, SwarmEvent};
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
     connection_limits::ConnectionLimits,
@@ -17,17 +17,16 @@ use libp2p::{
     quic,
     multiaddr::Multiaddr,
     gossipsub,
+    dns::TokioDnsConfig,
 };
 use clap::Parser;
-// use tokio::sync::mpsc::{Sender, Receiver};
 use wormhole_protos::modules::gossip::{SignedObservation, ObservationRequest, SignedVaaWithQuorum, SignedObservationRequest, GossipMessage, gossip_message::Message as MessageEnum};
 use log::{error, info};
+use wormhole_protos::prost::Message;
 use std::str::FromStr;
 use crossbeam_channel::{Sender, Receiver};
 use ed25519_dalek::{Keypair as EdKeypair, Signer};
-use prost::Message;
 use sha3::{Digest,Keccak256};
-// use tonic::codegen::ok;
 
 
 
@@ -80,9 +79,9 @@ async fn run_p2p(
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
+    
+    
     //setup Kademlia
-    
-    
     let stream_protocol = StreamProtocol::new("/wormhole/mainnet/2");
     let mut cfg = KademliaConfig::default().set_protocol_names(vec![stream_protocol]).to_owned();
     cfg.set_query_timeout(Duration::from_secs(5 * 60));
@@ -114,7 +113,6 @@ async fn run_p2p(
         .expect("Valid config");
 
     let mut behaviour = Behaviour{
-        relay: relay::Behaviour::new(local_peer_id, Default::default()),
         kad: kad_behaviour,
         limits: connection_limits::Behaviour::new(conn_lim.with_max_established(Some(400))),
         gossip: gossipsub::Behaviour::new(
@@ -123,13 +121,14 @@ async fn run_p2p(
         )
         .expect("Correct configuration")
     };
-    let mut quic_config = quic::Config::new(&local_key);
-    quic_config.support_draft_29 = true;
-    let quic_transport = quic::async_std::Transport::new(quic_config);
-    let transport =  quic_transport.map(|either_output, _| match either_output {
-        (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
-    }).boxed();
-    
+    let transport = {
+        let mut quic_config = quic::Config::new(&local_key);
+        quic_config.support_draft_29 = true;
+        let quic_transport = quic::tokio::Transport::new(quic_config);
+        tokio::task::spawn_blocking(|| { TokioDnsConfig::system(quic_transport) }).await.expect("dns configuration failed").unwrap().map(|either_output, _| match either_output {
+            (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
+        }).boxed()
+    };
     let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
     behaviour.gossip.subscribe(&topic);
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
@@ -144,7 +143,7 @@ async fn run_p2p(
     tokio::task::spawn(async move {
         loop{
             crossbeam_channel::select! {
-                recv(gossipSendC) -> gossip_send =>{
+                recv(gossipSendC) -> gossip_send => {
                     if let Err(e) =  swarm.behaviour_mut().gossip.publish(topic.clone(), gossip_send.expect("failed to receive")){
                         println!("Publish Error: {}", e);
                     }
@@ -182,16 +181,39 @@ async fn run_p2p(
         }
     });
     
-    loop {
-        selec
-    }
+    // loop {
+    //     tokio::select! {
+    //         event = swarm.select_next_some() => match event{
+    //             SwarmEvent::Behaviour(BehaviourEvent::Gossip(gossipsub::Event::Message {
+    //                 propagation_source: peer_id,
+    //                 message_id: id,
+    //                 message,
+    //             })) => println!(
+    //                     "Got message: '{}' with id: {id} from peer: {peer_id}",
+    //                     String::from_utf8_lossy(&message.data),
+    //                 ),
+    //             SwarmEvent::Behaviour(BehaviourEvent::Gossip(gossipsub::Event::Subscribed{
+    //                 peer_id,
+    //                 topic,
+    //             })) => println!(
+    //                 "Subscribed to: '{}' from id: {peer_id}",
+    //                 topic.to_string(),
+    //             ),
+    //             SwarmEvent::NewListenAddr { address, .. } => {
+    //                 println!("Local node is listening on {address}");
+    //             }
+
+    //             _ => {}
+    //         }
+    //     }
+    // }
+    
     Ok(())
 }
 
 
 #[derive(NetworkBehaviour)]
-struct Behaviour{
-    relay: libp2p::relay::Behaviour,
+pub struct Behaviour{
     kad: libp2p::kad::Kademlia<MemoryStore>,
     limits: libp2p::connection_limits::Behaviour,
     gossip: gossipsub::Behaviour,
