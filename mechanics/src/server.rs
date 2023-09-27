@@ -102,7 +102,7 @@ impl SpyRpcService for SpyRpcServiceProvider{
 
 
 
-        let s = req.into_inner().filters.iter().map(|f| {
+        let s: Vec<_> = req.into_inner().filters.iter().map(|f| {
                 match &f.filter {
                     Some(Filter::BatchFilter(b)) => Ok({
                         let stream= SubscriptionStream::new(
@@ -141,7 +141,7 @@ impl SpyRpcService for SpyRpcServiceProvider{
                 }
             
             
-        });
+        }).collect();
         // let s =  req.into_inner().filters.iter().find_map(|filter_entry|{
         //     if let Some(f) =  filter_entry.filter {
                 
