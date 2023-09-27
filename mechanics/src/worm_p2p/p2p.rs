@@ -2,6 +2,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use tokio::sync::Mutex;
+use std::sync::Arc;
 use std::time::Duration;
 use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
@@ -93,7 +95,7 @@ async fn run_p2p(
     for i in bootstrappers.0.iter(){
         kad_behaviour.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
     }
-    kad_behaviour.bootstrap();
+    kad_behaviour.bootstrap()?;
 
     let conn_lim =  ConnectionLimits::default();
 
@@ -130,13 +132,14 @@ async fn run_p2p(
         }).boxed()
     };
     let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
-    behaviour.gossip.subscribe(&topic);
+    behaviour.gossip.subscribe(&topic)?;
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
 
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
     swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
     
+    // let s_swarm = Arc::new(Mutex::new(swarm));
     //how many successful bootstrap connections?
     let successful_connections = connect_peers(bootstrappers.0, &mut swarm).expect("no successful connections!");
     
@@ -174,44 +177,45 @@ async fn run_p2p(
                         Err(e) => panic!("Failed to encode message: {:?}", e),
                     };
                     obsvReqC.send(observation_request.clone().unwrap()).expect("failed to send the request in the queue");
-                    swarm.behaviour_mut().gossip.publish(topic.clone(), e_slice);
+                    swarm.behaviour_mut().gossip.publish(topic.clone(), e_slice).expect("failed to publish");
 
                 }
              }
         }
-    });
-    
-    // loop {
-    //     tokio::select! {
-    //         event = swarm.select_next_some() => match event{
-    //             SwarmEvent::Behaviour(BehaviourEvent::Gossip(gossipsub::Event::Message {
-    //                 propagation_source: peer_id,
-    //                 message_id: id,
-    //                 message,
-    //             })) => println!(
-    //                     "Got message: '{}' with id: {id} from peer: {peer_id}",
-    //                     String::from_utf8_lossy(&message.data),
-    //                 ),
-    //             SwarmEvent::Behaviour(BehaviourEvent::Gossip(gossipsub::Event::Subscribed{
-    //                 peer_id,
-    //                 topic,
-    //             })) => println!(
-    //                 "Subscribed to: '{}' from id: {peer_id}",
-    //                 topic.to_string(),
-    //             ),
-    //             SwarmEvent::NewListenAddr { address, .. } => {
-    //                 println!("Local node is listening on {address}");
-    //             }
 
-    //             _ => {}
+    });
+
+    // tokio::task::spawn( async move {
+    //     loop {
+    //         tokio::select! {
+    //             event = swarm.select_next_some() => match event {
+                    
+    //             }
     //         }
     //     }
-    // }
+    // });
     
     Ok(())
 }
 
 
+pub struct EventHandler{
+    swarm: Swarm<Behaviour>,
+    event_sender: Sender<BehaviourEvent>
+}
+
+async fn handle_event(
+
+) {
+
+}
+
+// #[derive(Debug)]
+// pub enum Event{
+//     Gossip{
+        
+//     }
+// }
 #[derive(NetworkBehaviour)]
 pub struct Behaviour{
     kad: libp2p::kad::Kademlia<MemoryStore>,

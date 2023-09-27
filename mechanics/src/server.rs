@@ -26,7 +26,8 @@ use wormhole_sdk::{
 use tonic::{transport::Channel, Response, Status, Request, Code, Result as TonicResult};
 use crate::subscription_stream::{SubscriptionStream, StreamClosedSender};
 
-type SignedVaaSender = TokioSender<Result<SubscribeSignedVaaResponse,Status>>;
+type SignedVaaSender = TokioSender<Result<SubscribeSignedVaaResponse, Status>>;
+type SignedVaaByTypeSender = TokioSender<Result<SubscribeSignedVaaByTypeResponse, Status>>;
 
 #[derive(Clone)]
 struct SubscriptionClosedSender {
@@ -99,30 +100,47 @@ impl SpyRpcService for SpyRpcServiceProvider{
             Status::internal("error adding subscription")
         });
 
-        let s = req.into_inner().filters.iter().for_each(|f: &FilterEntry| {
-            if let Some(fil) = f.filter{
-                match fil {
-                    Filter::BatchFilter(b) => Ok({
-                        let stream= SubscriptionStream::new(signed_vaa_receiver, uuid,(self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)), "signed_batch_vaa_stream");
+
+
+        let s = req.into_inner().filters.iter().map(|f| {
+                match &f.filter {
+                    Some(Filter::BatchFilter(b)) => Ok({
+                        let stream= SubscriptionStream::new(
+                            signed_vaa_receiver, 
+                            uuid,
+                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
+                             "signed_batch_vaa_stream",
+                        );
                         let vec: Vec<u8> = vec![1,2,34,45,34];
                         let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
                         Response::new(stream)
                     }),
-                    Filter::EmitterFilter(e) => Ok({
+                    Some(Filter::EmitterFilter(e)) => Ok({
+                        let stream= SubscriptionStream::new(
+                            signed_vaa_receiver, 
+                            uuid,
+                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
+                             "signed_batch_vaa_stream",
+                        );
                         let vec: Vec<u8> = vec![1,2,34,45,34];
                         let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-                    Response::new(resp)
+                        Response::new(stream)
                     }),
-                    Filter::BatchTransactionFilter(t) => Ok({
+                    Some(Filter::BatchTransactionFilter(t)) => Ok({
+                        let stream= SubscriptionStream::new(
+                            signed_vaa_receiver, 
+                            uuid,
+                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
+                             "signed_batch_vaa_stream",
+                            );
                         let vec: Vec<u8> = vec![1,2,34,45,34];
                         let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-                        Response::new(resp)
-                    })
+                        Response::new(stream)
+                    }),
+                    _ => Err(Status::new(Code::InvalidArgument, "Invalid Filter type"))
                 }
-            }
-            else{
-                Err(Status::new(Code::InvalidArgument, "Invalid Filter type"));
-            }
+            
+            
         });
         // let s =  req.into_inner().filters.iter().find_map(|filter_entry|{
         //     if let Some(f) =  filter_entry.filter {
