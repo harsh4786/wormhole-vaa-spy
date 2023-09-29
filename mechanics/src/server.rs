@@ -101,6 +101,24 @@ impl SpyRpcService for SpyRpcServiceProvider{
         });
 
 
+        fn create_subscription_stream_response(
+            signed_vaa_receiver: &ReceiverType,  // Replace with appropriate type
+            uuid: Uuid,
+            subscription_closed_sender: &SubscriptionClosedSender // Replace with appropriate type
+        ) -> Result<Response<Self::SubscribeSignedVAAStream>, Status> {
+            let stream = SubscriptionStream::new(
+                signed_vaa_receiver.clone(),
+                uuid,
+                (
+                    subscription_closed_sender.clone(),
+                    SubscriptionClosedEvent::SignedVAASubscription(uuid)
+                ),
+                "signed_batch_vaa_stream",
+            );
+            let vec: Vec<u8> = vec![1, 2, 34, 45, 34];
+            let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
+            Ok(Response::new(stream))
+        }
 
         let s: Vec<_> = req.into_inner().filters.iter().map(|f| {
                 match &f.filter {
