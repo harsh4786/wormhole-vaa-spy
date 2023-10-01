@@ -2,6 +2,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
+use rand_core::OsRng;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +22,6 @@ use libp2p::{
     gossipsub,
     dns::TokioDnsConfig,
 };
-use clap::Parser;
 use wormhole_protos::modules::gossip::{SignedObservation, ObservationRequest, SignedVaaWithQuorum, SignedObservationRequest, GossipMessage, gossip_message::Message as MessageEnum};
 use wormhole_protos::prost::Message;
 // use crossbeam_channel::{Sender, Receiver};
@@ -34,6 +34,7 @@ use super::utils::{bootstrap_addrs, connect_peers};
 
 pub const DEFAULT_PORT: usize = 8999;
 pub const SIGNED_OBSERVATION_REQUEST_PREFIX: &[u8] = b"signed_observation_request|";
+pub const MAINNET_BOOTSTRAP_ADDRS: &str = "/dns4/wormhole-mainnet-v2-bootstrap.certus.one/udp/8999/quic/p2p/12D3KooWQp644DK27fd3d4Km3jr7gHiuJJ5ZGmy8hH4py7fP4FP7";
 
 pub const MAINNET_BOOTSTRAP_PEERS: [&str; 2] = [
     "12D3KooWQp644DK27fd3d4Km3jr7gHiuJJ5ZGmy8hH4py7fP4FP7",
@@ -73,11 +74,11 @@ impl Default for Components{
     }
 }
 #[allow(non_snake_case)]
-async fn run_p2p(
+pub async fn run_p2p(
     obsvC: Sender<SignedObservation>,
     obsvReqC: Sender<ObservationRequest>,
     mut obsvReqSendC: Receiver<ObservationRequest>,
-    mut gossipSendC: Receiver<Vec<u8>>,
+    // mut gossipSendC: Receiver<Vec<u8>>,
     signedInC: Sender<SignedVaaWithQuorum>,
     privKey: Keypair,
     gk: Arc<EdKeypair>,
@@ -160,12 +161,12 @@ async fn run_p2p(
         loop{
             let gk_cl = gk.clone();
             tokio::select! {
-                Some(gossip_send) = gossipSendC.recv() => {
-                    let mut lock = swarm_clone1.lock().await;
-                    if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
-                        println!("Publish Error: {}", e);
-                    }
-                },
+                // Some(gossip_send) = gossipSendC.recv() => {
+                //     let mut lock = swarm_clone1.lock().await;
+                //     if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
+                //         println!("Publish Error: {}", e);
+                //     }
+                // },
                 Some(observation_request) = obsvReqSendC.recv() => {
                     let ob_c = observation_request.clone();
                     let hash_and_signature = tokio::task::spawn_blocking(move || {
@@ -214,10 +215,48 @@ async fn run_p2p(
                         propagation_source: peer_id,
                         message_id: id,
                         message,
-                    })) => println!(
-                            "Got message: '{}' with id: {id} from peer: {peer_id}",
-                            String::from_utf8_lossy(&message.data),
-                        ),
+                    })) => {
+                        // println!(
+                        //     "Got message: '{}' with id: {id} from peer: {peer_id}",
+                        //     String::from_utf8_lossy(&message.data),
+                        // );
+                        let message_data = message.data.as_slice();
+                        let gossip_message = match GossipMessage::decode(message_data){
+                            Ok(m) => {
+                               Some(m)
+                            },
+                            Err(e) => {
+                                eprintln!("Failed to decode GossipMessage: {}", e);
+                                None
+                            }
+                        };
+
+                        match gossip_message.unwrap().message.unwrap(){
+                            MessageEnum::SignedObservation(s) => {
+                                println!("SIGNED AND HOT: {:?}", s);
+                                obsvC.send(s).await.expect("failed to send signed observation");
+                            },
+                            MessageEnum::SignedVaaWithQuorum(s) => {
+                                println!("signed VAA with quorum: {:?}", s);
+                               signedInC.send(s).await.expect("failed to send signedVAA with quorum")
+                            },
+                            MessageEnum::SignedObservationRequest(r) => {
+                                //  obsvReqC.send(r).await.expect("failed to send signed observation request");
+                                println!("No guardian set so just logging: {:?}", r);
+                            },
+                            MessageEnum::SignedBatchVaaWithQuorum(v) =>{
+                                print!("VAA: {:?}", v);
+                            },
+                            MessageEnum::SignedChainGovernorStatus(w) =>{
+                                print!("GOVERNOR STATUS: {:?}", w);
+                            },
+                            MessageEnum::SignedBatchObservation(s) => {
+                                println!("Signed Batch Obs: {:?}", s);
+                            }
+                           _ => {},
+                        }
+
+                    },
                     SwarmEvent::Behaviour(BehaviourEvent::Gossip(gossipsub::Event::Subscribed{
                         peer_id,
                         topic,
@@ -256,9 +295,6 @@ async fn handle_event(
 }
 
 
-#[tokio::main]
-async fn main(){
-    
-}
+
 
 
