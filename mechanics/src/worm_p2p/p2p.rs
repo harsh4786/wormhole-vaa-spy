@@ -2,7 +2,6 @@
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
-use rand_core::OsRng;
 use tokio::sync::Mutex;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,7 +9,7 @@ use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
 use libp2p::kad::{KademliaConfig, Kademlia};
-use libp2p::{Transport, connection_limits, Swarm, StreamProtocol};
+use libp2p::{Transport, connection_limits, StreamProtocol};
 use libp2p::swarm::{SwarmBuilder, SwarmEvent};
 use libp2p::{PeerId, kad::store::MemoryStore};
 use libp2p::{
@@ -78,7 +77,7 @@ pub async fn run_p2p(
     obsvC: Sender<SignedObservation>,
     obsvReqC: Sender<ObservationRequest>,
     mut obsvReqSendC: Receiver<ObservationRequest>,
-    // mut gossipSendC: Receiver<Vec<u8>>,
+    mut gossipSendC: Receiver<Vec<u8>>,
     signedInC: Sender<SignedVaaWithQuorum>,
     privKey: Keypair,
     gk: Arc<EdKeypair>,
@@ -90,7 +89,6 @@ pub async fn run_p2p(
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
-    
     
     //setup Kademlia
     let stream_protocol = StreamProtocol::new("/wormhole/mainnet/2");
@@ -161,12 +159,12 @@ pub async fn run_p2p(
         loop{
             let gk_cl = gk.clone();
             tokio::select! {
-                // Some(gossip_send) = gossipSendC.recv() => {
-                //     let mut lock = swarm_clone1.lock().await;
-                //     if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
-                //         println!("Publish Error: {}", e);
-                //     }
-                // },
+                Some(gossip_send) = gossipSendC.recv() => {
+                    let mut lock = swarm_clone1.lock().await;
+                    if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
+                        println!("Publish Error: {}", e);
+                    }
+                },
                 Some(observation_request) = obsvReqSendC.recv() => {
                     let ob_c = observation_request.clone();
                     let hash_and_signature = tokio::task::spawn_blocking(move || {

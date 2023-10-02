@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn Error>>{
     use rand::prelude::*;
     let (obs_send, obs_recv) =  tokio::sync::mpsc::channel(1024);
     let (obs_req_send, obs_req_recv) = tokio::sync::mpsc::channel(1024);
+    let (gossip_sendc, gossip_recvc) =  tokio::sync::mpsc::channel(1024);
     let (signedinc_s, signedinc_r) = tokio::sync::mpsc::channel(1024);
     let rg = rand::rngs::OsRng::default();
     let mut rng = StdRng::from_rng(rg).unwrap();
@@ -20,7 +21,8 @@ async fn main() -> Result<(), Box<dyn Error>>{
             run_p2p(
                 obs_send, 
                 obs_req_send, 
-                obs_req_recv, 
+                obs_req_recv,
+                gossip_recvc, 
                 signedinc_s, 
                 keyp, 
                 gk, 
