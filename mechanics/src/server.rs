@@ -25,7 +25,10 @@ use tonic::{transport::Channel, Response, Status, Request, Code, Result as Tonic
 use crate::subscription_stream::{SubscriptionStream, StreamClosedSender};
 
 type SignedVaaSender = TokioSender<Result<SubscribeSignedVaaResponse, Status>>;
-type SignedVaaByTypeSender = TokioSender<Result<SubscribeSignedVaaByTypeResponse, Status>>;
+type SignedObservationSender = TokioSender<Result<SubscribeSignedObservationResponse, Status>>;
+// type SignedVaaByTypeSender = TokioSender<Result<SubscribeSignedVaaByTypeResponse, Status>>;
+
+
 
 #[derive(Clone)]
 struct SubscriptionClosedSender {
@@ -43,8 +46,12 @@ impl StreamClosedSender<SubscriptionClosedEvent> for SubscriptionClosedSender{
 enum SubscriptionAddedEvent {
     SignedVAASubscription{
         uuid: Uuid,
-        signed_vaa_sender: SignedVaaSender,
+        sender: SignedVaaSender,
         filter_type: Filter
+    },
+    SignedObservationSubscription{
+        uuid: Uuid,
+        sender: SignedObservationSender,
     }
 }
 
@@ -52,6 +59,7 @@ enum SubscriptionAddedEvent {
 #[derive(Debug)]
 enum SubscriptionClosedEvent {
     SignedVAASubscription(Uuid),
+    SignedObservationSubscription(Uuid),
 }
 
 pub struct FilterSignedVaa{
@@ -111,8 +119,8 @@ impl SpyRpcService for SpyRpcServiceProvider{
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
-                                signed_vaa_sender, 
-                                filter_type: Filter::BatchFilter(*b)
+                                sender: signed_vaa_sender.clone(), 
+                                filter_type: Filter::BatchFilter(b.clone())
                             }
                         ).map_err( |e| {
                             error!(
@@ -120,15 +128,15 @@ impl SpyRpcService for SpyRpcServiceProvider{
                                 e
                             );
                             Status::internal("error adding subscription")
-                        });
+                        })?;
                     },
 
                     Some(Filter::EmitterFilter(e)) => {
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
-                                signed_vaa_sender, 
-                                filter_type: Filter::EmitterFilter(*e)
+                                sender: signed_vaa_sender.clone(), 
+                                filter_type: Filter::EmitterFilter(e.clone())
                             }
                         ).map_err( |e| {
                             error!(
@@ -136,15 +144,15 @@ impl SpyRpcService for SpyRpcServiceProvider{
                                 e
                             );
                             Status::internal("error adding subscription")
-                        });
+                        })?;
                     },
 
                     Some(Filter::BatchTransactionFilter(t)) => {
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
-                                signed_vaa_sender, 
-                                filter_type: Filter::BatchTransactionFilter(*t)
+                                sender: signed_vaa_sender.clone(), 
+                                filter_type: Filter::BatchTransactionFilter(t.clone())
                             }
                         ).map_err( |e| {
                             error!(
@@ -152,7 +160,7 @@ impl SpyRpcService for SpyRpcServiceProvider{
                                 e
                             );
                             Status::internal("error adding subscription")
-                        });
+                        })?;
                     },
                     None => error!("No filters found: Invalid filter type")
                 }
@@ -167,7 +175,38 @@ impl SpyRpcService for SpyRpcServiceProvider{
         &self,
         req: Request<SubscribeSignedObservationRequest>,
     ) -> Result<Response<Self::SubscribeSignedObservationsStream>, Status>{
+        let (signed_obs_sender, signed_obs_receiver) = channel(self.config.subscriber_buffer_size);
+        let uuid = Uuid::new_v4();
 
-        Ok()
+        self.subscription_added_tx.try_send(
+            SubscriptionAddedEvent::SignedObservationSubscription { 
+                uuid,
+                sender: signed_obs_sender,
+            }
+        ).map_err( |e| {
+            error!(
+                "failed to add subscribe_vaa_updates subscription: {}",
+                e
+            );
+            Status::internal("error adding subscription")
+        })?;
+
+        let create_subscription_stream_response = 
+            |uuid: Uuid,
+            subscription_closed_sender: &SubscriptionClosedSender| -> Result<Response<Self::SubscribeSignedObservationsStream>, Status> 
+            {
+                let stream = SubscriptionStream::new(
+                    signed_obs_receiver,
+                    uuid,
+                    (
+                        subscription_closed_sender.clone(),
+                        SubscriptionClosedEvent::SignedObservationSubscription(uuid)
+                    ),
+                    "signed_observation_stream",
+                );
+                Ok(Response::new(stream))
+            };
+
+        Ok(create_subscription_stream_response(uuid, &self.subscription_closed_sender)?)
     }
 }
