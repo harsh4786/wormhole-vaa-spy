@@ -1,11 +1,8 @@
-use std::collections::HashSet;
-
 use log::error;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wormhole_protos::modules::{
     spy::{SubscribeSignedVaaRequest, SubscribeSignedVaaResponse, 
-        SubscribeSignedVaaByTypeRequest, SubscribeSignedVaaByTypeResponse, 
         spy_rpc_service_server::SpyRpcService, filter_entry::{Filter, self},
         spy_rpc_service_server::SpyRpcServiceServer, FilterEntry, SubscribeSignedObservationResponse, SubscribeSignedObservationRequest,
     
@@ -13,11 +10,10 @@ use wormhole_protos::modules::{
     gossip::SignedVaaWithQuorum, publicrpc::ChainId,
 };
 use tokio::sync::mpsc::{channel, error::TrySendError as TokioTrySendError, Sender as TokioSender};
-use crossbeam_channel::{tick, unbounded, Receiver, RecvError, Sender};
+use crossbeam_channel::{tick, unbounded, Receiver, RecvError, Sender, TrySendError};
 use wormhole_sdk::{
     Chain,
     core::Action,
-    GOVERNANCE_EMITTER,
     vaa::{
         Body,
         Header,
@@ -77,16 +73,12 @@ pub struct SpyRpcServiceProvider{
     t_hdl: JoinHandle<()>
 }
 
-async fn run_spy(){
-
-}
-
+async fn run_spy(){}
 
 
 
 #[tonic::async_trait]
 impl SpyRpcService for SpyRpcServiceProvider{
-    
     type SubscribeSignedVAAStream = SubscriptionStream<Uuid, SubscribeSignedVaaResponse>;
     async fn subscribe_signed_vaa(
         &self,
@@ -113,11 +105,9 @@ impl SpyRpcService for SpyRpcServiceProvider{
             Ok(Response::new(stream))
         };
     
-    
-
-        let s: Vec<_> = req.into_inner().filters.iter().map(|f| {
+        for f in req.into_inner().filters.iter(){
                 match &f.filter {
-                    Some(Filter::BatchFilter(b)) => Ok({
+                    Some(Filter::BatchFilter(b)) => {
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
@@ -131,12 +121,9 @@ impl SpyRpcService for SpyRpcServiceProvider{
                             );
                             Status::internal("error adding subscription")
                         });
+                    },
 
-                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
-                        stream
-                    }),
-
-                    Some(Filter::EmitterFilter(e)) => Ok({
+                    Some(Filter::EmitterFilter(e)) => {
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
@@ -150,12 +137,9 @@ impl SpyRpcService for SpyRpcServiceProvider{
                             );
                             Status::internal("error adding subscription")
                         });
+                    },
 
-                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
-                        stream
-                    }),
-
-                    Some(Filter::BatchTransactionFilter(t)) => Ok({
+                    Some(Filter::BatchTransactionFilter(t)) => {
                         self.subscription_added_tx.try_send(
                             SubscriptionAddedEvent::SignedVAASubscription { 
                                 uuid, 
@@ -169,37 +153,13 @@ impl SpyRpcService for SpyRpcServiceProvider{
                             );
                             Status::internal("error adding subscription")
                         });
-                        
-                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
-                        stream
-                    }),
-                    _ => Err(Status::new(Code::InvalidArgument, "Invalid Filter type"))
+                    },
+                    None => error!("No filters found: Invalid filter type")
                 }
-            
-            
-        }).collect();
-        // let s =  req.into_inner().filters.iter().find_map(|filter_entry|{
-        //     if let Some(f) =  filter_entry.filter {
-                
-        //     }
-        // })
-        // for f in req.get_ref().filters.iter(){
-        //     if let Some(fentry) = f.filter{
-        //         match fentry{
-        //             Filter::BatchFilter(b) => {
-        //                 let vec: Vec<u8> = vec![1,2,34,45,34];
-        //                 let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-        //                 return  Ok(Response::new(resp))
-        //             },
-        //             Filter::BatchTransactionFilter(btf) =>{
+        
+        };
 
-        //             },
-        //             Filter::EmitterFilter(ef) => {
-
-        //             }
-        //         }
-        //     }
-        // }
+        Ok(create_subscription_stream_response(uuid, &self.subscription_closed_sender)?)
     }
 
     type SubscribeSignedObservationsStream = SubscriptionStream<Uuid,SubscribeSignedObservationResponse>;
