@@ -15,10 +15,16 @@ service SpyRPCService {
       body: "*"
     };
   }
-  // SubscribeSignedBatchVAA returns a stream of signed VAA messages, by type, received on the network.
-  rpc SubscribeSignedVAAByType (SubscribeSignedVAAByTypeRequest) returns (stream SubscribeSignedVAAByTypeResponse) {
+  // // SubscribeSignedBatchVAA returns a stream of signed VAA messages, by type, received on the network.
+  // rpc SubscribeSignedVAAByType (SubscribeSignedVAAByTypeRequest) returns (stream SubscribeSignedVAAByTypeResponse) {
+  //   option (google.api.http) = {
+  //     post: "/v1:subscribe_signed_vaa_by_type"
+  //     body: "*"
+  //   };
+  // }
+  rpc SubscribeSignedObservations (SubscribeSignedObservationRequest) returns (stream SubscribeSignedObservationResponse){
     option (google.api.http) = {
-      post: "/v1:subscribe_signed_vaa_by_type"
+      post: "/v1:subscribe_signed_observations"
       body: "*"
     };
   }
@@ -57,26 +63,35 @@ message FilterEntry {
   }
 }
 
+message SubscribeSignedObservationRequest{}
+message SubscribeSignedObservationResponse{
+  bytes addr = 1;
+  bytes hash = 2;
+  bytes signature = 3;
+  bytes tx_hash = 4;
+  string message_id = 5;
+}
+
 message SubscribeSignedVAARequest {
   // List of filters to apply to the stream (OR).
   // If empty, all messages are streamed.
   repeated FilterEntry filters = 1;
 }
 
-message SubscribeSignedVAAByTypeRequest {
-  // List of filters to apply to the stream (OR).
-  // If empty, all messages are streamed.
-  repeated FilterEntry filters = 1;
-}
+// message SubscribeSignedVAAByTypeRequest {
+//   // List of filters to apply to the stream (OR).
+//   // If empty, all messages are streamed.
+//   repeated FilterEntry filters = 1;
+// }
 
 message SubscribeSignedVAAResponse {
   // Raw VAA bytes
   bytes vaa_bytes = 1;
 }
 
-message SubscribeSignedVAAByTypeResponse {
-  oneof vaa_type {
-    gossip.SignedVAAWithQuorum signed_vaa = 1;
-    gossip.SignedBatchVAAWithQuorum signed_batch_vaa = 2;
-  }
-}
+// message SubscribeSignedVAAByTypeResponse {
+//   oneof vaa_type {
+//     gossip.SignedVAAWithQuorum signed_vaa = 1;
+//     gossip.SignedBatchVAAWithQuorum signed_batch_vaa = 2;
+//   }
+// }

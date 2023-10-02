@@ -4,12 +4,11 @@ fn main() {
     .include_file("mod.rs")
         .compile(
             &[
-                // "proto/node.proto",
                 "proto/gossip.proto",
-                 "proto/publicrpc.proto",
+                "proto/publicrpc.proto",
                 "proto/spy.proto",
                 "proto/http.proto",
-               "proto/annotations.proto"
+                "proto/annotations.proto"
             ],
             &["proto"],
         )
