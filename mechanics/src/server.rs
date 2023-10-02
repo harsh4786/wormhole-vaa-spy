@@ -43,7 +43,7 @@ impl StreamClosedSender<SubscriptionClosedEvent> for SubscriptionClosedSender{
 }
 
 #[allow(clippy::enum_variant_names)]
-enum SubscriptionAddedEvent {
+pub enum SubscriptionAddedEvent {
     SignedVAASubscription{
         uuid: Uuid,
         sender: SignedVaaSender,
@@ -173,7 +173,7 @@ impl SpyRpcService for SpyRpcServiceProvider{
     type SubscribeSignedObservationsStream = SubscriptionStream<Uuid,SubscribeSignedObservationResponse>;
     async fn subscribe_signed_observations(
         &self,
-        req: Request<SubscribeSignedObservationRequest>,
+        _req: Request<SubscribeSignedObservationRequest>,
     ) -> Result<Response<Self::SubscribeSignedObservationsStream>, Status>{
         let (signed_obs_sender, signed_obs_receiver) = channel(self.config.subscriber_buffer_size);
         let uuid = Uuid::new_v4();
