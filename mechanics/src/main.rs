@@ -17,7 +17,6 @@ async fn main() -> Result<(), Box<dyn Error>>{
     let keyp = Keypair::generate_ed25519();
     
     let gk = Arc::new(ed_keyp);
-        // tokio::spawn(async move{
             run_p2p(
                 obs_send, 
                 obs_req_send, 
@@ -29,10 +28,9 @@ async fn main() -> Result<(), Box<dyn Error>>{
                 MAINNET_BOOTSTRAP_ADDRS, 
                 "", 
                 Components::default(),
-            ).await;
-
+            ).await.expect("failed to run");
+            
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_secs(1000)).await;
             }
-        //  }).await;
 }

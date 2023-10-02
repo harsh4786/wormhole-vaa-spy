@@ -283,16 +283,16 @@ pub async fn run_p2p(
 }
 
 
-pub struct EventHandler{
-    swarm: Swarm<Behaviour>,
-    event_sender: Sender<BehaviourEvent>
-}
+// pub struct EventHandler{
+//     swarm: Swarm<Behaviour>,
+//     event_sender: Sender<BehaviourEvent>
+// }
 
-async fn handle_event(
+// async fn handle_event(
 
-) {
+// ) {
 
-}
+// }
 
 
 

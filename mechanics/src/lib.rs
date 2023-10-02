@@ -1,4 +1,4 @@
-// mod server;
+// pub mod server;
 pub mod subscription_stream;
 pub mod worm_p2p;
 
