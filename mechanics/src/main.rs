@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>>{
                 Components::default(),
             ).await.expect("failed to run");
             
-            loop {
-                tokio::time::sleep(tokio::time::Duration::from_secs(1000)).await;
-            }
+    loop {
+        tokio::time::sleep(tokio::time::Duration::from_secs(1000)).await;
+    }
 }

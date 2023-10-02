@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use log::error;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -5,7 +7,7 @@ use wormhole_protos::modules::{
     spy::{SubscribeSignedVaaRequest, SubscribeSignedVaaResponse, 
         SubscribeSignedVaaByTypeRequest, SubscribeSignedVaaByTypeResponse, 
         spy_rpc_service_server::SpyRpcService, filter_entry::{Filter, self},
-        spy_rpc_service_server::SpyRpcServiceServer, FilterEntry,
+        spy_rpc_service_server::SpyRpcServiceServer, FilterEntry, SubscribeSignedObservationResponse, SubscribeSignedObservationRequest,
     
     },
     gossip::SignedVaaWithQuorum, publicrpc::ChainId,
@@ -46,6 +48,7 @@ enum SubscriptionAddedEvent {
     SignedVAASubscription{
         uuid: Uuid,
         signed_vaa_sender: SignedVaaSender,
+        filter_type: Filter
     }
 }
 
@@ -80,8 +83,10 @@ async fn run_spy(){
 
 
 
+
 #[tonic::async_trait]
 impl SpyRpcService for SpyRpcServiceProvider{
+    
     type SubscribeSignedVAAStream = SubscriptionStream<Uuid, SubscribeSignedVaaResponse>;
     async fn subscribe_signed_vaa(
         &self,
@@ -90,24 +95,14 @@ impl SpyRpcService for SpyRpcServiceProvider{
         
         let (signed_vaa_sender, signed_vaa_receiver) = channel(self.config.subscriber_buffer_size);
         let uuid = Uuid::new_v4();
-        self.subscription_added_tx.try_send(
-            SubscriptionAddedEvent::SignedVAASubscription { uuid, signed_vaa_sender }
-        ).map_err( |e| {
-            error!(
-                "failed to add subscribe_vaa_updates subscription: {}",
-                e
-            );
-            Status::internal("error adding subscription")
-        });
+       
 
-
-        fn create_subscription_stream_response(
-            signed_vaa_receiver: &ReceiverType,  // Replace with appropriate type
-            uuid: Uuid,
-            subscription_closed_sender: &SubscriptionClosedSender // Replace with appropriate type
-        ) -> Result<Response<Self::SubscribeSignedVAAStream>, Status> {
+        let create_subscription_stream_response = 
+            |uuid: Uuid,
+            subscription_closed_sender: &SubscriptionClosedSender| -> Result<Response<Self::SubscribeSignedVAAStream>, Status> 
+        {
             let stream = SubscriptionStream::new(
-                signed_vaa_receiver.clone(),
+                signed_vaa_receiver,
                 uuid,
                 (
                     subscription_closed_sender.clone(),
@@ -115,45 +110,68 @@ impl SpyRpcService for SpyRpcServiceProvider{
                 ),
                 "signed_batch_vaa_stream",
             );
-            let vec: Vec<u8> = vec![1, 2, 34, 45, 34];
-            let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
             Ok(Response::new(stream))
-        }
+        };
+    
+    
 
         let s: Vec<_> = req.into_inner().filters.iter().map(|f| {
                 match &f.filter {
                     Some(Filter::BatchFilter(b)) => Ok({
-                        let stream= SubscriptionStream::new(
-                            signed_vaa_receiver, 
-                            uuid,
-                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
-                             "signed_batch_vaa_stream",
-                        );
-                        let vec: Vec<u8> = vec![1,2,34,45,34];
-                        let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-                        Response::new(stream)
-                    }),
-                    Some(Filter::EmitterFilter(e)) => Ok({
-                        let stream= SubscriptionStream::new(
-                            signed_vaa_receiver, 
-                            uuid,
-                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
-                             "signed_batch_vaa_stream",
-                        );
-                        let vec: Vec<u8> = vec![1,2,34,45,34];
-                        let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-                        Response::new(stream)
-                    }),
-                    Some(Filter::BatchTransactionFilter(t)) => Ok({
-                        let stream= SubscriptionStream::new(
-                            signed_vaa_receiver, 
-                            uuid,
-                            (self.subscription_closed_sender.clone(), SubscriptionClosedEvent::SignedVAASubscription(uuid)),
-                             "signed_batch_vaa_stream",
+                        self.subscription_added_tx.try_send(
+                            SubscriptionAddedEvent::SignedVAASubscription { 
+                                uuid, 
+                                signed_vaa_sender, 
+                                filter_type: Filter::BatchFilter(*b)
+                            }
+                        ).map_err( |e| {
+                            error!(
+                                "failed to add subscribe_vaa_updates subscription: {}",
+                                e
                             );
-                        let vec: Vec<u8> = vec![1,2,34,45,34];
-                        let resp = SubscribeSignedVaaResponse { vaa_bytes: vec };
-                        Response::new(stream)
+                            Status::internal("error adding subscription")
+                        });
+
+                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
+                        stream
+                    }),
+
+                    Some(Filter::EmitterFilter(e)) => Ok({
+                        self.subscription_added_tx.try_send(
+                            SubscriptionAddedEvent::SignedVAASubscription { 
+                                uuid, 
+                                signed_vaa_sender, 
+                                filter_type: Filter::EmitterFilter(*e)
+                            }
+                        ).map_err( |e| {
+                            error!(
+                                "failed to add subscribe_vaa_updates subscription: {}",
+                                e
+                            );
+                            Status::internal("error adding subscription")
+                        });
+
+                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
+                        stream
+                    }),
+
+                    Some(Filter::BatchTransactionFilter(t)) => Ok({
+                        self.subscription_added_tx.try_send(
+                            SubscriptionAddedEvent::SignedVAASubscription { 
+                                uuid, 
+                                signed_vaa_sender, 
+                                filter_type: Filter::BatchTransactionFilter(*t)
+                            }
+                        ).map_err( |e| {
+                            error!(
+                                "failed to add subscribe_vaa_updates subscription: {}",
+                                e
+                            );
+                            Status::internal("error adding subscription")
+                        });
+                        
+                        let stream = create_subscription_stream_response(uuid, &self.subscription_closed_sender).unwrap();
+                        stream
                     }),
                     _ => Err(Status::new(Code::InvalidArgument, "Invalid Filter type"))
                 }
@@ -184,11 +202,11 @@ impl SpyRpcService for SpyRpcServiceProvider{
         // }
     }
 
-    type SubscribeSignedVAAByTypeStream = SubscriptionStream<Uuid,SubscribeSignedVaaByTypeResponse>;
-    async fn subscribe_signed_vaa_by_type(
+    type SubscribeSignedObservationsStream = SubscriptionStream<Uuid,SubscribeSignedObservationResponse>;
+    async fn subscribe_signed_observations(
         &self,
-        req: Request<SubscribeSignedVaaByTypeRequest>,
-    ) -> Result<Response<SubscribeSignedVaaByTypeResponse>, Status>{
+        req: Request<SubscribeSignedObservationRequest>,
+    ) -> Result<Response<Self::SubscribeSignedObservationsStream>, Status>{
 
         Ok()
     }
