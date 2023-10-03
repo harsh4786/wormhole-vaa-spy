@@ -123,7 +123,7 @@ pub struct FilterSignedVaa{
 
 #[derive(Debug, Clone)]
 pub struct SpyRpcServiceConfig{
-    filters: FilterEntry,
+    _filters: FilterEntry,
     subscriber_buffer_size: usize,
 }
 pub struct SpyRpcServiceProvider{
@@ -134,7 +134,33 @@ pub struct SpyRpcServiceProvider{
     subscription_closed_sender: SubscriptionClosedSender,
     t_hdl: JoinHandle<()>
 }
+
 impl SpyRpcServiceProvider{
+    pub fn new(
+        service_config: SpyRpcServiceConfig,
+        signed_vaa_rx: Receiver<SubscribeSignedVaaResponse>,
+        signed_obs_rx: Receiver<SubscribeSignedObservationResponse>,
+    ) -> Self{
+        let (subscription_added_tx, subscription_added_rx) = unbounded();
+        let (subscription_closed_tx, subscription_closed_rx) = unbounded();
+
+        let t_hdl = Self::event_loop(
+            signed_vaa_rx, 
+            signed_obs_rx, 
+            subscription_added_rx, 
+            subscription_closed_rx
+        );
+        Self { 
+            config: service_config,
+            subscription_added_tx, 
+            subscription_closed_sender: SubscriptionClosedSender { inner: subscription_closed_tx }, 
+            t_hdl, 
+        }
+    }
+    
+    
+    
+    
     fn event_loop(
         signed_vaa_updates: Receiver<SubscribeSignedVaaResponse>,
         signed_observation_updates: Receiver<SubscribeSignedObservationResponse>,
@@ -308,7 +334,7 @@ impl SpyRpcServiceProvider{
     }
 
 }
-async fn run_spy(){}
+// async fn run_spy(){}
 
 
 
