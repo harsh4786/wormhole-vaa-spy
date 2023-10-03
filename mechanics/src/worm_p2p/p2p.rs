@@ -1,35 +1,32 @@
 #![allow(unused_variables)]
-use std::collections::hash_map::DefaultHasher;
-use std::error::Error;
-use std::hash::{Hash, Hasher};
-use tokio::sync::Mutex;
-use std::sync::Arc;
-use std::time::Duration;
 use futures::StreamExt;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::identity::Keypair;
-use libp2p::kad::{KademliaConfig, Kademlia};
-use libp2p::{Transport, connection_limits, StreamProtocol};
+use libp2p::kad::{Kademlia, KademliaConfig};
 use libp2p::swarm::{SwarmBuilder, SwarmEvent};
-use libp2p::{PeerId, kad::store::MemoryStore};
+use libp2p::{connection_limits, StreamProtocol, Transport};
 use libp2p::{
-    connection_limits::ConnectionLimits,
-    identity,
+    connection_limits::ConnectionLimits, dns::TokioDnsConfig, gossipsub, identity, ping, quic,
     swarm::NetworkBehaviour,
-    quic,
-    ping,
-    gossipsub,
-    dns::TokioDnsConfig,
 };
-use wormhole_protos::modules::gossip::{SignedObservation, ObservationRequest, SignedVaaWithQuorum, SignedObservationRequest, GossipMessage, gossip_message::Message as MessageEnum};
+use libp2p::{kad::store::MemoryStore, PeerId};
+use std::collections::hash_map::DefaultHasher;
+use std::error::Error;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::sync::Mutex;
+use wormhole_protos::modules::gossip::{
+    gossip_message::Message as MessageEnum, GossipMessage, ObservationRequest, SignedObservation,
+    SignedObservationRequest, SignedVaaWithQuorum,
+};
 use wormhole_protos::prost::Message;
 // use crossbeam_channel::{Sender, Receiver};
 use ed25519_dalek::{Keypair as EdKeypair, Signer};
-use sha3::{Digest,Keccak256};
-use tokio::sync::mpsc::{Sender, Receiver};
+use sha3::{Digest, Keccak256};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use super::utils::{bootstrap_addrs, connect_peers};
-
 
 pub const DEFAULT_PORT: usize = 8999;
 pub const SIGNED_OBSERVATION_REQUEST_PREFIX: &[u8] = b"signed_observation_request|";
@@ -37,16 +34,18 @@ pub const MAINNET_BOOTSTRAP_ADDRS: &str = "/dns4/wormhole-mainnet-v2-bootstrap.c
 
 pub const MAINNET_BOOTSTRAP_PEERS: [&str; 2] = [
     "12D3KooWQp644DK27fd3d4Km3jr7gHiuJJ5ZGmy8hH4py7fP4FP7",
-    "12D3KooWNQ9tVrcb64tw6bNs2CaNrUGPM7yRrKvBBheQ5yCyPHKC"
+    "12D3KooWNQ9tVrcb64tw6bNs2CaNrUGPM7yRrKvBBheQ5yCyPHKC",
 ];
 
 pub const TESTNET_BOOTSTRAP_PEER: &str = "12D3KooWAkB9ynDur1Jtoa97LBUp8RXdhzS5uHgAfdTquJbrbN7i";
 
-pub const MAINNET_BOOTSTRAP_MULTIADDR: &str = "/dns4/wormhole-mainnet-v2-bootstrap.certus.one/udp/8999/quic";
-pub const TESTNET_BOOTSTRAP_MULTIADDR: &str = "/dns4/wormhole-testnet-v2-bootstrap.certus.one/udp/8999/quic";
+pub const MAINNET_BOOTSTRAP_MULTIADDR: &str =
+    "/dns4/wormhole-mainnet-v2-bootstrap.certus.one/udp/8999/quic";
+pub const TESTNET_BOOTSTRAP_MULTIADDR: &str =
+    "/dns4/wormhole-testnet-v2-bootstrap.certus.one/udp/8999/quic";
 
 #[derive(NetworkBehaviour)]
-pub struct Behaviour{
+pub struct Behaviour {
     kad: libp2p::kad::Kademlia<MemoryStore>,
     limits: libp2p::connection_limits::Behaviour,
     gossip: gossipsub::Behaviour,
@@ -54,21 +53,21 @@ pub struct Behaviour{
 }
 
 #[derive(Debug, Clone)]
-pub struct Components{
+pub struct Components {
     pub p2p_id_in_heartbeat: bool,
     pub listening_address_patterns: Vec<String>,
     pub port: usize,
 }
 
-impl Default for Components{
+impl Default for Components {
     fn default() -> Self {
-        Self { 
-            p2p_id_in_heartbeat: false, 
+        Self {
+            p2p_id_in_heartbeat: false,
             listening_address_patterns: vec![
                 "/ip4/0.0.0.0/udp/{}/quic".to_string(),
                 "/ip6/::/udp/{}/quic".to_string(),
-            ], 
-            port: DEFAULT_PORT
+            ],
+            port: DEFAULT_PORT,
         }
     }
 }
@@ -85,26 +84,28 @@ pub async fn run_p2p(
     bootstrap: &str,
     nodeName: &str,
     components: Components,
-)-> Result<(), Box<dyn Error>>{
+) -> Result<(), Box<dyn Error>> {
     let local_key = identity::Keypair::generate_ed25519();
     let local_peer_id = PeerId::from(local_key.public());
     let bootstrappers = bootstrap_addrs(bootstrap, &local_peer_id);
-    
+
     //setup Kademlia
     let stream_protocol = StreamProtocol::new("/wormhole/mainnet/2");
-    let mut cfg = KademliaConfig::default().set_protocol_names(vec![stream_protocol]).to_owned();
+    let mut cfg = KademliaConfig::default()
+        .set_protocol_names(vec![stream_protocol])
+        .to_owned();
     cfg.set_query_timeout(Duration::from_secs(5 * 60));
     let store = MemoryStore::new(local_peer_id);
     let mut kad_behaviour = Kademlia::with_config(local_peer_id, store, cfg);
     kad_behaviour.set_mode(Some(libp2p::kad::Mode::Server));
 
     //Change from mainnet to testnet and vice-versa here.
-    for i in bootstrappers.0.iter(){
+    for i in bootstrappers.0.iter() {
         kad_behaviour.add_address(i, MAINNET_BOOTSTRAP_MULTIADDR.parse()?);
     }
     kad_behaviour.bootstrap()?;
 
-    let conn_lim =  ConnectionLimits::default();
+    let conn_lim = ConnectionLimits::default();
 
     // message id function for gossip
     let message_id_fn = |message: &gossipsub::Message| {
@@ -121,7 +122,7 @@ pub async fn run_p2p(
         .build()
         .expect("Valid config");
 
-    let mut behaviour = Behaviour{
+    let mut behaviour = Behaviour {
         kad: kad_behaviour,
         limits: connection_limits::Behaviour::new(conn_lim.with_max_established(Some(400))),
         gossip: gossipsub::Behaviour::new(
@@ -135,76 +136,79 @@ pub async fn run_p2p(
         let mut quic_config = quic::Config::new(&local_key);
         quic_config.support_draft_29 = true;
         let quic_transport = quic::tokio::Transport::new(quic_config);
-        tokio::task::spawn_blocking(|| { TokioDnsConfig::system(quic_transport) }).await.expect("dns configuration failed").unwrap().map(|either_output, _| match either_output {
-            (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
-        }).boxed()
+        tokio::task::spawn_blocking(|| TokioDnsConfig::system(quic_transport))
+            .await
+            .expect("dns configuration failed")
+            .unwrap()
+            .map(|either_output, _| match either_output {
+                (peer_id, muxer) => (peer_id, StreamMuxerBox::new(muxer)),
+            })
+            .boxed()
     };
-    let topic =  gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
+    let topic = gossipsub::IdentTopic::new(format!("{}/{}", networkID, "broadcast"));
     behaviour.gossip.subscribe(&topic)?;
     let mut swarm = SwarmBuilder::with_tokio_executor(transport, behaviour, local_peer_id).build();
 
-
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
     swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
-    
+
     // let s_swarm = Arc::new(Mutex::new(swarm));
     //how many successful bootstrap connections?
     let swarm = Arc::new(Mutex::new(swarm));
     let mut locked_swarm = swarm.lock().await;
-    let successful_connections = connect_peers(bootstrappers.0, &mut *locked_swarm).expect("no successful connections!");
-    
+    let successful_connections =
+        connect_peers(bootstrappers.0, &mut *locked_swarm).expect("no successful connections!");
+
     let swarm_clone1 = swarm.clone();
     tokio::task::spawn(async move {
-        
-        loop{
+        loop {
             let gk_cl = gk.clone();
             tokio::select! {
-                Some(gossip_send) = gossipSendC.recv() => {
-                    let mut lock = swarm_clone1.lock().await;
-                    if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
-                        println!("Publish Error: {}", e);
-                    }
-                },
-                Some(observation_request) = obsvReqSendC.recv() => {
-                    let ob_c = observation_request.clone();
-                    let hash_and_signature = tokio::task::spawn_blocking(move || {
-                        let mut buf = [0u8; 512];
-                        let mut slice = &mut buf[..];
-                        ob_c.clone().encode(&mut slice).expect("failed to encode");
-                        let mut hasher = Keccak256::new();
-                        hasher.update(slice);
-                        let hash = hasher.finalize().to_vec();
-                        let signature = gk_cl.try_sign(&hash).unwrap();
-                        (hash, signature.to_bytes().to_vec(), buf)
-                    }).await.expect("Failed to perform blocking operation");
-                    
-                    let sreq = SignedObservationRequest {
-                        observation_request: hash_and_signature.2.to_vec(),
-                        signature: hash_and_signature.1,
-                        guardian_addr: gk.public.to_bytes().to_vec()
-                    };
-                    let envelope = GossipMessage{
-                        message: Some(MessageEnum::SignedObservationRequest(sreq))
-                    };
-                    let mut e_buf = [0u8; 512];
-                    let mut e_slice = &mut e_buf[..];
-                    let serialized_envelope = match envelope.encode(&mut e_slice){
-                        Ok(()) =>  {
-                            println!("{:?}", e_slice);
-                        },
-                        Err(e) => panic!("Failed to encode message: {:?}", e),
-                    };
-                    obsvReqC.send(observation_request.clone()).await.expect("failed to send the request in the queue");
-                    swarm_clone1.lock().await.behaviour_mut().gossip.publish(topic.clone(), e_slice).expect("failed to publish");
+               Some(gossip_send) = gossipSendC.recv() => {
+                   let mut lock = swarm_clone1.lock().await;
+                   if let Err(e) =  lock.behaviour_mut().gossip.publish(topic.clone(), gossip_send){
+                       println!("Publish Error: {}", e);
+                   }
+               },
+               Some(observation_request) = obsvReqSendC.recv() => {
+                   let ob_c = observation_request.clone();
+                   let hash_and_signature = tokio::task::spawn_blocking(move || {
+                       let mut buf = [0u8; 512];
+                       let mut slice = &mut buf[..];
+                       ob_c.clone().encode(&mut slice).expect("failed to encode");
+                       let mut hasher = Keccak256::new();
+                       hasher.update(slice);
+                       let hash = hasher.finalize().to_vec();
+                       let signature = gk_cl.try_sign(&hash).unwrap();
+                       (hash, signature.to_bytes().to_vec(), buf)
+                   }).await.expect("Failed to perform blocking operation");
 
-                }
-             }
+                   let sreq = SignedObservationRequest {
+                       observation_request: hash_and_signature.2.to_vec(),
+                       signature: hash_and_signature.1,
+                       guardian_addr: gk.public.to_bytes().to_vec()
+                   };
+                   let envelope = GossipMessage{
+                       message: Some(MessageEnum::SignedObservationRequest(sreq))
+                   };
+                   let mut e_buf = [0u8; 512];
+                   let mut e_slice = &mut e_buf[..];
+                   let serialized_envelope = match envelope.encode(&mut e_slice){
+                       Ok(()) =>  {
+                           println!("{:?}", e_slice);
+                       },
+                       Err(e) => panic!("Failed to encode message: {:?}", e),
+                   };
+                   obsvReqC.send(observation_request.clone()).await.expect("failed to send the request in the queue");
+                   swarm_clone1.lock().await.behaviour_mut().gossip.publish(topic.clone(), e_slice).expect("failed to publish");
+
+               }
+            }
         }
-
     });
 
     let swarm_clone2 = swarm.clone();
-    tokio::task::spawn( async move {
+    tokio::task::spawn(async move {
         loop {
             let mut swarm_lock = swarm_clone2.lock().await;
             tokio::select! {
@@ -269,17 +273,16 @@ pub async fn run_p2p(
                     SwarmEvent::NewListenAddr { address, .. } => {
                         println!("Local node is listening on {address}");
                     }
-    
+
                     _ => {}
-                    
+
                 }
             }
         }
     });
-    
+
     Ok(())
 }
-
 
 // pub struct EventHandler{
 //     swarm: Swarm<Behaviour>,
@@ -291,8 +294,3 @@ pub async fn run_p2p(
 // ) {
 
 // }
-
-
-
-
-

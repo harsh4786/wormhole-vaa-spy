@@ -1,43 +1,42 @@
+use crate::subscription_stream::{StreamClosedSender, SubscriptionStream};
+use crossbeam_channel::{tick, unbounded, Receiver, RecvError, Sender, TrySendError};
 use log::{error, info};
 use serde_derive::Deserialize;
-use uuid::Uuid;
-use std::{thread::{Builder, JoinHandle},collections::HashMap};
-use wormhole_protos::modules::{
-    spy::{SubscribeSignedVaaRequest, SubscribeSignedVaaResponse, 
-        spy_rpc_service_server::SpyRpcService, filter_entry::Filter,
-        spy_rpc_service_server::SpyRpcServiceServer, FilterEntry, SubscribeSignedObservationResponse, SubscribeSignedObservationRequest,
-    
-    },
-    gossip::{SignedVaaWithQuorum, SignedObservation}, publicrpc::ChainId,
+use std::{
+    collections::HashMap,
+    thread::{Builder, JoinHandle},
 };
 use thiserror::Error;
 use tokio::sync::mpsc::{channel, error::TrySendError as TokioTrySendError, Sender as TokioSender};
-use crossbeam_channel::{tick, unbounded, Receiver, RecvError, Sender, TrySendError};
-use wormhole_sdk::{
-    Chain,
-    core::Action,
-    vaa::{
-        Body,
-        Header,
-        Vaa,
-        Signature
-    }, Address,
+use tonic::{Request, Response, Status};
+use uuid::Uuid;
+use wormhole_protos::modules::{
+    gossip::{SignedObservation, SignedVaaWithQuorum},
+    publicrpc::ChainId,
+    spy::{
+        filter_entry::Filter, spy_rpc_service_server::SpyRpcService,
+        spy_rpc_service_server::SpyRpcServiceServer, FilterEntry,
+        SubscribeSignedObservationRequest, SubscribeSignedObservationResponse,
+        SubscribeSignedVaaRequest, SubscribeSignedVaaResponse,
+    },
 };
-use tonic::{Response, Status, Request};
-use crate::subscription_stream::{SubscriptionStream, StreamClosedSender};
+use wormhole_sdk::{
+    core::Action,
+    vaa::{Body, Header, Signature, Vaa},
+    Address, Chain,
+};
 
 type SignedVaaSender = TokioSender<Result<SubscribeSignedVaaResponse, Status>>;
 type SignedObservationSender = TokioSender<Result<SubscribeSignedObservationResponse, Status>>;
 // type SignedVaaByTypeSender = TokioSender<Result<SubscribeSignedVaaByTypeResponse, Status>>;
 type GeyserServiceResult<T> = Result<T, GeyserServiceError>;
 
-
 #[derive(Clone)]
 struct SubscriptionClosedSender {
     inner: Sender<SubscriptionClosedEvent>,
 }
 
-impl StreamClosedSender<SubscriptionClosedEvent> for SubscriptionClosedSender{
+impl StreamClosedSender<SubscriptionClosedEvent> for SubscriptionClosedSender {
     type Error = crossbeam_channel::TrySendError<SubscriptionClosedEvent>;
     fn send(&self, event: SubscriptionClosedEvent) -> Result<(), Self::Error> {
         self.inner.try_send(event)
@@ -47,24 +46,24 @@ impl StreamClosedSender<SubscriptionClosedEvent> for SubscriptionClosedSender{
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
 pub enum SubscriptionAddedEvent {
-    SignedVAASubscription{
+    SignedVAASubscription {
         uuid: Uuid,
         sender: SignedVaaSender,
-        filter_type: Filter
+        filter_type: Filter,
     },
-    SignedObservationSubscription{
+    SignedObservationSubscription {
         uuid: Uuid,
         sender: SignedObservationSender,
-    }
+    },
 }
 
-struct SignedVAASubscription{
+struct SignedVAASubscription {
     tx: SignedVaaSender,
     filter_type: Filter,
 }
 
-struct SignedObservationSubscription{
-    tx: SignedObservationSender
+struct SignedObservationSubscription {
+    tx: SignedObservationSender,
 }
 
 #[allow(clippy::enum_variant_names)]
@@ -78,28 +77,20 @@ trait ErrorStatusStreamer {
     fn stream_error(&self, status: Status) -> GeyserServiceResult<()>;
 }
 
-impl ErrorStatusStreamer for SignedObservationSubscription{
+impl ErrorStatusStreamer for SignedObservationSubscription {
     fn stream_error(&self, status: Status) -> GeyserServiceResult<()> {
-        self.tx.try_send(Err(status)).map_err(|e|{
-            match e {
-                TokioTrySendError::Full(_) => GeyserServiceError::NotificationReceiverFull,
-                TokioTrySendError::Closed(_) => {
-                    GeyserServiceError::NotificationReceiverDisconnected
-                }
-            }
+        self.tx.try_send(Err(status)).map_err(|e| match e {
+            TokioTrySendError::Full(_) => GeyserServiceError::NotificationReceiverFull,
+            TokioTrySendError::Closed(_) => GeyserServiceError::NotificationReceiverDisconnected,
         })
     }
 }
 
-impl ErrorStatusStreamer for SignedVAASubscription{
+impl ErrorStatusStreamer for SignedVAASubscription {
     fn stream_error(&self, status: Status) -> GeyserServiceResult<()> {
-        self.tx.try_send(Err(status)).map_err(|e|{
-            match e {
-                TokioTrySendError::Full(_) => GeyserServiceError::NotificationReceiverFull,
-                TokioTrySendError::Closed(_) => {
-                    GeyserServiceError::NotificationReceiverDisconnected
-                }
-            }
+        self.tx.try_send(Err(status)).map_err(|e| match e {
+            TokioTrySendError::Full(_) => GeyserServiceError::NotificationReceiverFull,
+            TokioTrySendError::Closed(_) => GeyserServiceError::NotificationReceiverDisconnected,
         })
     }
 }
@@ -116,63 +107,63 @@ pub enum GeyserServiceError {
     NotificationReceiverDisconnected,
 }
 
-
-pub struct FilterSignedVaa{
-   pub chain_id: ChainId,
-   pub emitter_address: Address,
+pub struct FilterSignedVaa {
+    pub chain_id: ChainId,
+    pub emitter_address: Address,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct SpyRpcServiceConfig{
+pub struct SpyRpcServiceConfig {
     subscriber_buffer_size: usize,
 }
 impl SpyRpcServiceConfig {
-    pub fn new(buf_size: usize) -> Self{
-        Self { subscriber_buffer_size: buf_size }
-    }    
+    pub fn new(buf_size: usize) -> Self {
+        Self {
+            subscriber_buffer_size: buf_size,
+        }
+    }
 }
 
-
-pub struct SpyRpcServiceProvider{
+pub struct SpyRpcServiceProvider {
     config: SpyRpcServiceConfig,
     subscription_added_tx: Sender<SubscriptionAddedEvent>,
 
     /// Used to close existing subscriptions.
     subscription_closed_sender: SubscriptionClosedSender,
-    t_hdl: JoinHandle<()>
+    t_hdl: JoinHandle<()>,
 }
 
-impl SpyRpcServiceProvider{
+impl SpyRpcServiceProvider {
     pub fn new(
         service_config: SpyRpcServiceConfig,
         signed_vaa_rx: Receiver<SubscribeSignedVaaResponse>,
         signed_obs_rx: Receiver<SubscribeSignedObservationResponse>,
-    ) -> Self{
+    ) -> Self {
         let (subscription_added_tx, subscription_added_rx) = unbounded();
         let (subscription_closed_tx, subscription_closed_rx) = unbounded();
 
         let t_hdl = Self::event_loop(
-            signed_vaa_rx, 
-            signed_obs_rx, 
-            subscription_added_rx, 
-            subscription_closed_rx
+            signed_vaa_rx,
+            signed_obs_rx,
+            subscription_added_rx,
+            subscription_closed_rx,
         );
-        Self { 
+        Self {
             config: service_config,
-            subscription_added_tx, 
-            subscription_closed_sender: SubscriptionClosedSender { inner: subscription_closed_tx }, 
-            t_hdl, 
+            subscription_added_tx,
+            subscription_closed_sender: SubscriptionClosedSender {
+                inner: subscription_closed_tx,
+            },
+            t_hdl,
         }
     }
-    
-    
+
     fn event_loop(
         signed_vaa_updates: Receiver<SubscribeSignedVaaResponse>,
         signed_observation_updates: Receiver<SubscribeSignedObservationResponse>,
         subscription_added_rx: Receiver<SubscriptionAddedEvent>,
         subscription_closed_rx: Receiver<SubscriptionClosedEvent>,
-    )-> JoinHandle<()>{
-    
+    ) -> JoinHandle<()> {
         Builder::new()
         .name("spy-service-event-loop".to_string())
         .spawn(move ||{
@@ -195,7 +186,6 @@ impl SpyRpcServiceProvider{
                             return;
                         }
                     }
-    
                     recv(signed_vaa_updates) -> maybe_signed_vaa_update => {
                         info!("received signed VAA");
                         match Self::handle_signed_vaa_update_event(
@@ -211,7 +201,6 @@ impl SpyRpcServiceProvider{
                             }
                         }
                     }
-    
                     recv(signed_observation_updates) -> maybe_obs_update => {
                         info!("received signed observation");
                         match Self::handle_signed_obs_update_event(
@@ -227,13 +216,11 @@ impl SpyRpcServiceProvider{
                             }
                         }
                     }
-    
                 }
             }
         }).unwrap()
-    
     }
-    
+
     fn handle_subscription_added(
         maybe_subscription_added: Result<SubscriptionAddedEvent, RecvError>,
         signed_vaa_subscriptions: &mut HashMap<Uuid, SignedVAASubscription>,
@@ -241,89 +228,87 @@ impl SpyRpcServiceProvider{
     ) -> GeyserServiceResult<()> {
         let subscription_added = maybe_subscription_added?;
         info!("new subscription: {:?}", subscription_added);
-        
-        match subscription_added{
+
+        match subscription_added {
             SubscriptionAddedEvent::SignedVAASubscription {
-                 uuid, 
-                 sender, 
-                 filter_type,
+                uuid,
+                sender,
+                filter_type,
             } => {
                 signed_vaa_subscriptions.insert(
-                    uuid, 
-                    SignedVAASubscription { tx: sender , filter_type}
-                );
-            },
-    
-            SubscriptionAddedEvent::SignedObservationSubscription { 
-                uuid, 
-                sender 
-            } => {
-                signed_obs_update_subscriptions.insert(
-                    uuid, 
-                    SignedObservationSubscription { 
-                        tx: sender 
+                    uuid,
+                    SignedVAASubscription {
+                        tx: sender,
+                        filter_type,
                     },
                 );
+            }
+
+            SubscriptionAddedEvent::SignedObservationSubscription { uuid, sender } => {
+                signed_obs_update_subscriptions
+                    .insert(uuid, SignedObservationSubscription { tx: sender });
             }
         }
         Ok(())
     }
-    
+
     fn handle_subscription_closed(
         maybe_subscription_closed: Result<SubscriptionClosedEvent, RecvError>,
         signed_obs_subscriptions: &mut HashMap<Uuid, SignedObservationSubscription>,
         signed_vaa_subscriptions: &mut HashMap<Uuid, SignedVAASubscription>,
-    ) -> GeyserServiceResult<()>{
+    ) -> GeyserServiceResult<()> {
         let subscription_closed = maybe_subscription_closed?;
         info!("closing subscription: {:?}", subscription_closed);
-        match subscription_closed{
+        match subscription_closed {
             SubscriptionClosedEvent::SignedObservationSubscription(i) => {
                 let _ = signed_obs_subscriptions.remove(&i);
-            },
+            }
             SubscriptionClosedEvent::SignedVAASubscription(i) => {
                 let _ = signed_vaa_subscriptions.remove(&i);
             }
         }
         Ok(())
     }
-    
+
     fn handle_signed_vaa_update_event(
         maybe_signed_vaa_update: Result<SubscribeSignedVaaResponse, RecvError>,
         signed_vaa_subscriptions: &HashMap<Uuid, SignedVAASubscription>,
-    ) -> GeyserServiceResult<Vec<Uuid>>{
+    ) -> GeyserServiceResult<Vec<Uuid>> {
         let signed_vaa_update = maybe_signed_vaa_update?;
         let failed_subs = signed_vaa_subscriptions
-        .iter()
-        .filter_map(|(uuid, sub_)|{
-            if matches!(
-                sub_.tx.try_send(Ok(signed_vaa_update.clone())),
-                Err(TokioTrySendError::Closed(_))
-            ){
-                Some(*uuid)
-            } else {
-                None
-            }
-        }).collect();
+            .iter()
+            .filter_map(|(uuid, sub_)| {
+                if matches!(
+                    sub_.tx.try_send(Ok(signed_vaa_update.clone())),
+                    Err(TokioTrySendError::Closed(_))
+                ) {
+                    Some(*uuid)
+                } else {
+                    None
+                }
+            })
+            .collect();
         Ok(failed_subs)
     }
-    
+
     fn handle_signed_obs_update_event(
         maybe_signed_obs_update: Result<SubscribeSignedObservationResponse, RecvError>,
         signed_obs_subscriptions: &HashMap<Uuid, SignedObservationSubscription>,
-    ) -> GeyserServiceResult<Vec<Uuid>>{
+    ) -> GeyserServiceResult<Vec<Uuid>> {
         let signed_obs_update = maybe_signed_obs_update?;
         let failed_subs = signed_obs_subscriptions
-        .iter()
-        .filter_map(|(uuid, sub_)|{
-            if matches!(
-                sub_.tx.try_send(Ok(signed_obs_update.clone())),
-                Err(TokioTrySendError::Closed(_))
-            ){
-                Some(*uuid)
-            } else {
-                None
-            }
-        }).collect();
+            .iter()
+            .filter_map(|(uuid, sub_)| {
+                if matches!(
+                    sub_.tx.try_send(Ok(signed_obs_update.clone())),
+                    Err(TokioTrySendError::Closed(_))
+                ) {
+                    Some(*uuid)
+                } else {
+                    None
+                }
+            })
+            .collect();
         Ok(failed_subs)
     }
 
@@ -337,136 +322,123 @@ impl SpyRpcServiceProvider{
             }
         }
     }
-
 }
 // async fn run_spy(){}
 
-
-
 #[tonic::async_trait]
-impl SpyRpcService for SpyRpcServiceProvider{
+impl SpyRpcService for SpyRpcServiceProvider {
     type SubscribeSignedVAAStream = SubscriptionStream<Uuid, SubscribeSignedVaaResponse>;
     async fn subscribe_signed_vaa(
         &self,
         req: Request<SubscribeSignedVaaRequest>,
-    ) -> Result<Response<Self::SubscribeSignedVAAStream>, Status>{
-        
+    ) -> Result<Response<Self::SubscribeSignedVAAStream>, Status> {
         let (signed_vaa_sender, signed_vaa_receiver) = channel(self.config.subscriber_buffer_size);
         let uuid = Uuid::new_v4();
-       
 
-        let create_subscription_stream_response = 
+        let create_subscription_stream_response =
             |uuid: Uuid,
-            subscription_closed_sender: &SubscriptionClosedSender| -> Result<Response<Self::SubscribeSignedVAAStream>, Status> 
-        {
-            let stream = SubscriptionStream::new(
-                signed_vaa_receiver,
-                uuid,
-                (
-                    subscription_closed_sender.clone(),
-                    SubscriptionClosedEvent::SignedVAASubscription(uuid)
-                ),
-                "signed_batch_vaa_stream",
-            );
-            Ok(Response::new(stream))
-        };
-    
-        for f in req.into_inner().filters.iter(){
-                match &f.filter {
-                    Some(Filter::BatchFilter(b)) => {
-                        self.subscription_added_tx.try_send(
-                            SubscriptionAddedEvent::SignedVAASubscription { 
-                                uuid, 
-                                sender: signed_vaa_sender.clone(), 
-                                filter_type: Filter::BatchFilter(b.clone())
-                            }
-                        ).map_err( |e| {
-                            error!(
-                                "failed to add subscribe_vaa_updates subscription: {}",
-                                e
-                            );
-                            Status::internal("error adding subscription")
-                        })?;
-                    },
+             subscription_closed_sender: &SubscriptionClosedSender|
+             -> Result<Response<Self::SubscribeSignedVAAStream>, Status> {
+                let stream = SubscriptionStream::new(
+                    signed_vaa_receiver,
+                    uuid,
+                    (
+                        subscription_closed_sender.clone(),
+                        SubscriptionClosedEvent::SignedVAASubscription(uuid),
+                    ),
+                    "signed_batch_vaa_stream",
+                );
+                Ok(Response::new(stream))
+            };
 
-                    Some(Filter::EmitterFilter(e)) => {
-                        self.subscription_added_tx.try_send(
-                            SubscriptionAddedEvent::SignedVAASubscription { 
-                                uuid, 
-                                sender: signed_vaa_sender.clone(), 
-                                filter_type: Filter::EmitterFilter(e.clone())
-                            }
-                        ).map_err( |e| {
-                            error!(
-                                "failed to add subscribe_vaa_updates subscription: {}",
-                                e
-                            );
+        for f in req.into_inner().filters.iter() {
+            match &f.filter {
+                Some(Filter::BatchFilter(b)) => {
+                    self.subscription_added_tx
+                        .try_send(SubscriptionAddedEvent::SignedVAASubscription {
+                            uuid,
+                            sender: signed_vaa_sender.clone(),
+                            filter_type: Filter::BatchFilter(b.clone()),
+                        })
+                        .map_err(|e| {
+                            error!("failed to add subscribe_vaa_updates subscription: {}", e);
                             Status::internal("error adding subscription")
                         })?;
-                    },
-
-                    Some(Filter::BatchTransactionFilter(t)) => {
-                        self.subscription_added_tx.try_send(
-                            SubscriptionAddedEvent::SignedVAASubscription { 
-                                uuid, 
-                                sender: signed_vaa_sender.clone(), 
-                                filter_type: Filter::BatchTransactionFilter(t.clone())
-                            }
-                        ).map_err( |e| {
-                            error!(
-                                "failed to add subscribe_vaa_updates subscription: {}",
-                                e
-                            );
-                            Status::internal("error adding subscription")
-                        })?;
-                    },
-                    None => error!("No filters found: Invalid filter type")
                 }
-        
-        };
 
-        Ok(create_subscription_stream_response(uuid, &self.subscription_closed_sender)?)
+                Some(Filter::EmitterFilter(e)) => {
+                    self.subscription_added_tx
+                        .try_send(SubscriptionAddedEvent::SignedVAASubscription {
+                            uuid,
+                            sender: signed_vaa_sender.clone(),
+                            filter_type: Filter::EmitterFilter(e.clone()),
+                        })
+                        .map_err(|e| {
+                            error!("failed to add subscribe_vaa_updates subscription: {}", e);
+                            Status::internal("error adding subscription")
+                        })?;
+                }
+
+                Some(Filter::BatchTransactionFilter(t)) => {
+                    self.subscription_added_tx
+                        .try_send(SubscriptionAddedEvent::SignedVAASubscription {
+                            uuid,
+                            sender: signed_vaa_sender.clone(),
+                            filter_type: Filter::BatchTransactionFilter(t.clone()),
+                        })
+                        .map_err(|e| {
+                            error!("failed to add subscribe_vaa_updates subscription: {}", e);
+                            Status::internal("error adding subscription")
+                        })?;
+                }
+                None => error!("No filters found: Invalid filter type"),
+            }
+        }
+
+        Ok(create_subscription_stream_response(
+            uuid,
+            &self.subscription_closed_sender,
+        )?)
     }
 
-    type SubscribeSignedObservationsStream = SubscriptionStream<Uuid,SubscribeSignedObservationResponse>;
+    type SubscribeSignedObservationsStream =
+        SubscriptionStream<Uuid, SubscribeSignedObservationResponse>;
     async fn subscribe_signed_observations(
         &self,
         _req: Request<SubscribeSignedObservationRequest>,
-    ) -> Result<Response<Self::SubscribeSignedObservationsStream>, Status>{
+    ) -> Result<Response<Self::SubscribeSignedObservationsStream>, Status> {
         let (signed_obs_sender, signed_obs_receiver) = channel(self.config.subscriber_buffer_size);
         let uuid = Uuid::new_v4();
 
-        self.subscription_added_tx.try_send(
-            SubscriptionAddedEvent::SignedObservationSubscription { 
+        self.subscription_added_tx
+            .try_send(SubscriptionAddedEvent::SignedObservationSubscription {
                 uuid,
                 sender: signed_obs_sender,
-            }
-        ).map_err( |e| {
-            error!(
-                "failed to add subscribe_vaa_updates subscription: {}",
-                e
-            );
-            Status::internal("error adding subscription")
-        })?;
+            })
+            .map_err(|e| {
+                error!("failed to add subscribe_vaa_updates subscription: {}", e);
+                Status::internal("error adding subscription")
+            })?;
 
-        let create_subscription_stream_response = 
+        let create_subscription_stream_response =
             |uuid: Uuid,
-            subscription_closed_sender: &SubscriptionClosedSender| -> Result<Response<Self::SubscribeSignedObservationsStream>, Status> 
-            {
+             subscription_closed_sender: &SubscriptionClosedSender|
+             -> Result<Response<Self::SubscribeSignedObservationsStream>, Status> {
                 let stream = SubscriptionStream::new(
                     signed_obs_receiver,
                     uuid,
                     (
                         subscription_closed_sender.clone(),
-                        SubscriptionClosedEvent::SignedObservationSubscription(uuid)
+                        SubscriptionClosedEvent::SignedObservationSubscription(uuid),
                     ),
                     "signed_observation_stream",
                 );
                 Ok(Response::new(stream))
             };
 
-        Ok(create_subscription_stream_response(uuid, &self.subscription_closed_sender)?)
+        Ok(create_subscription_stream_response(
+            uuid,
+            &self.subscription_closed_sender,
+        )?)
     }
 }
-
-

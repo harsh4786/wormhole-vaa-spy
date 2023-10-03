@@ -1,16 +1,12 @@
-use std::{error::Error, str::FromStr};
 use ed25519_dalek::{Keypair, Signer};
-use libp2p::{PeerId, Multiaddr, Swarm, swarm::DialError};
-use log::{info, error};
-use sha3::{Keccak256, Digest};
+use libp2p::{swarm::DialError, Multiaddr, PeerId, Swarm};
+use log::{error, info};
+use sha3::{Digest, Keccak256};
+use std::{error::Error, str::FromStr};
 
 use super::p2p::Behaviour;
 
-
-pub fn hash_and_sign(
-    slice: &[u8],
-    gk: &Keypair,
-) -> Result<(Vec<u8>, Vec<u8>), Box<dyn Error>> {
+pub fn hash_and_sign(slice: &[u8], gk: &Keypair) -> Result<(Vec<u8>, Vec<u8>), Box<dyn Error>> {
     let mut hasher = Keccak256::new();
     hasher.update(slice);
     let hash = hasher.finalize().to_vec();
@@ -18,11 +14,7 @@ pub fn hash_and_sign(
     Ok((hash, signature.to_bytes().to_vec()))
 }
 
-
-pub fn bootstrap_addrs(
-    bootstrap_peers: &str,
-    self_id: &PeerId,
-) -> (Vec<PeerId>, bool) {
+pub fn bootstrap_addrs(bootstrap_peers: &str, self_id: &PeerId) -> (Vec<PeerId>, bool) {
     let mut bootstrappers = Vec::new();
     let mut is_bootstrap_node = false;
 
@@ -65,11 +57,7 @@ pub fn bootstrap_addrs(
     (bootstrappers, is_bootstrap_node)
 }
 
-
-pub fn connect_peers(
-    peers: Vec<PeerId>,
-    swarm: &mut Swarm<Behaviour>,
-) -> Result<usize, DialError> {
+pub fn connect_peers(peers: Vec<PeerId>, swarm: &mut Swarm<Behaviour>) -> Result<usize, DialError> {
     let mut success_counter = 0usize;
     for &peer in &peers {
         match swarm.dial(peer) {
