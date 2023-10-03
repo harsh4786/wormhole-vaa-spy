@@ -1,5 +1,5 @@
 use crate::subscription_stream::{StreamClosedSender, SubscriptionStream};
-use crossbeam_channel::{tick, unbounded, Receiver, RecvError, Sender, TrySendError};
+use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use log::{error, info};
 use serde_derive::Deserialize;
 use std::{
@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{channel, error::TrySendError as TokioTrySendError, Sende
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 use wormhole_protos::modules::{
-    gossip::{SignedObservation, SignedVaaWithQuorum},
+    // gossip::{SignedObservation, SignedVaaWithQuorum},
     publicrpc::ChainId,
     spy::{
         filter_entry::Filter, spy_rpc_service_server::SpyRpcService,
@@ -21,7 +21,6 @@ use wormhole_protos::modules::{
     },
 };
 use wormhole_sdk::{
-    core::Action,
     vaa::{Body, Header, Signature, Vaa},
     Address, Chain,
 };
@@ -59,7 +58,6 @@ pub enum SubscriptionAddedEvent {
 
 struct SignedVAASubscription {
     tx: SignedVaaSender,
-    filter_type: Filter,
 }
 
 struct SignedObservationSubscription {
@@ -230,18 +228,8 @@ impl SpyRpcServiceProvider {
         info!("new subscription: {:?}", subscription_added);
 
         match subscription_added {
-            SubscriptionAddedEvent::SignedVAASubscription {
-                uuid,
-                sender,
-                filter_type,
-            } => {
-                signed_vaa_subscriptions.insert(
-                    uuid,
-                    SignedVAASubscription {
-                        tx: sender,
-                        filter_type,
-                    },
-                );
+            SubscriptionAddedEvent::SignedVAASubscription { uuid, sender, .. } => {
+                signed_vaa_subscriptions.insert(uuid, SignedVAASubscription { tx: sender });
             }
 
             SubscriptionAddedEvent::SignedObservationSubscription { uuid, sender } => {

@@ -152,10 +152,10 @@ pub async fn run_p2p(
     swarm.listen_on(format!("/ip4/0.0.0.0/udp/{}/quic", components.port).parse()?)?;
     swarm.listen_on(format!("/ip6/::/udp/{}/quic", components.port).parse()?)?;
 
-    // let s_swarm = Arc::new(Mutex::new(swarm));
-    //how many successful bootstrap connections?
     let swarm = Arc::new(Mutex::new(swarm));
     let mut locked_swarm = swarm.lock().await;
+
+    //how many successful bootstrap connections?
     let successful_connections =
         connect_peers(bootstrappers.0, &mut *locked_swarm).expect("no successful connections!");
 
@@ -218,10 +218,7 @@ pub async fn run_p2p(
                         message_id: id,
                         message,
                     })) => {
-                        // println!(
-                        //     "Got message: '{}' with id: {id} from peer: {peer_id}",
-                        //     String::from_utf8_lossy(&message.data),
-                        // );
+
                         let message_data = message.data.as_slice();
                         let gossip_message = match GossipMessage::decode(message_data){
                             Ok(m) => {
@@ -233,9 +230,10 @@ pub async fn run_p2p(
                             }
                         };
 
+                        // Can add custom logic here to handle messages received from the p2p network.
                         match gossip_message.unwrap().message.unwrap(){
                             MessageEnum::SignedObservation(s) => {
-                                println!("SIGNED AND HOT: {:?}", s);
+                                println!("Received Signed Observation: {:?}", s);
                                 obsvC.send(s).await.expect("failed to send signed observation");
                             },
                             MessageEnum::SignedVaaWithQuorum(s) => {
@@ -283,14 +281,3 @@ pub async fn run_p2p(
 
     Ok(())
 }
-
-// pub struct EventHandler{
-//     swarm: Swarm<Behaviour>,
-//     event_sender: Sender<BehaviourEvent>
-// }
-
-// async fn handle_event(
-
-// ) {
-
-// }
