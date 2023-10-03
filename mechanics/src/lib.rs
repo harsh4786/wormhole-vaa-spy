@@ -1,5 +1,5 @@
 pub mod server;
-pub mod subscription_stream;
+pub(crate) mod subscription_stream;
 pub mod worm_p2p;
 
 // pub use subscription_stream;
