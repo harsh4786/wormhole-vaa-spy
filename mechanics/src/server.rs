@@ -1,4 +1,5 @@
 use log::{error, info};
+use serde_derive::Deserialize;
 use uuid::Uuid;
 use std::{thread::{Builder, JoinHandle},collections::HashMap};
 use wormhole_protos::modules::{
@@ -22,7 +23,7 @@ use wormhole_sdk::{
         Signature
     }, Address,
 };
-use tonic::{transport::Channel, Response, Status, Request, Code, Result as TonicResult};
+use tonic::{Response, Status, Request};
 use crate::subscription_stream::{SubscriptionStream, StreamClosedSender};
 
 type SignedVaaSender = TokioSender<Result<SubscribeSignedVaaResponse, Status>>;
@@ -121,11 +122,17 @@ pub struct FilterSignedVaa{
    pub emitter_address: Address,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SpyRpcServiceConfig{
-    _filters: FilterEntry,
     subscriber_buffer_size: usize,
 }
+impl SpyRpcServiceConfig {
+    pub fn new(buf_size: usize) -> Self{
+        Self { subscriber_buffer_size: buf_size }
+    }    
+}
+
+
 pub struct SpyRpcServiceProvider{
     config: SpyRpcServiceConfig,
     subscription_added_tx: Sender<SubscriptionAddedEvent>,
@@ -157,8 +164,6 @@ impl SpyRpcServiceProvider{
             t_hdl, 
         }
     }
-    
-    
     
     
     fn event_loop(
