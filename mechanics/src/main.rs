@@ -111,7 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let svc = SpyRpcServiceServer::new(service);
                 let runtime = Runtime::new().unwrap();
                 let (server_exit_tx, server_exit_rx) = oneshot::channel();
-                runtime.spawn(Server::builder().add_service(svc).serve_with_shutdown(
+                tokio::spawn(Server::builder().add_service(svc).serve_with_shutdown(
                     bind_address.clone().parse().unwrap(),
                     async move {
                         let _ = server_exit_rx.await;
