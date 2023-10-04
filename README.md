@@ -1,7 +1,8 @@
 # Theseus: A Wormhole spy node implementation in Rust 
+![Theseus_Aegeus-8837e150b03746bd9ebe9956aa7b80fc](https://github.com/harsh4786/wormhole-vaa-spy/assets/50767810/3dad6f5f-4158-49c3-a3b0-0b3bac7ba1d2)
+
 Wormhole spy nodes are the types of nodes that don't participate in consensus or VAA attestations
 but listen to messages passed on by the guardian nodes to each other in the p2p network. 
-
 
 ## Running
 - Build the files using `cargo b -r`
