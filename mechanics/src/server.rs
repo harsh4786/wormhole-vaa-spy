@@ -1,3 +1,6 @@
+// This server design is inspired from Jito Foundations's geyser gRPC plugin implementation
+// which can be found in this [repository](https://github.com/jito-foundation/geyser-grpc-plugin)
+
 use crate::subscription_stream::{StreamClosedSender, SubscriptionStream};
 use crossbeam_channel::{unbounded, Receiver, RecvError, Sender};
 use log::{error, info};
