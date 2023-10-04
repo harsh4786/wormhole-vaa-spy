@@ -81,9 +81,6 @@ struct Args{
     // Listen address for gRPC interface
     #[clap(long)]
     spy: String,
-    // Timeout for sending a message to a subscriber
-    #[clap(long)]
-    timeout: u64
 }
 
 #[tokio::main]
