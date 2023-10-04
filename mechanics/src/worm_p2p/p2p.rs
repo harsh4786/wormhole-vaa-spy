@@ -134,7 +134,14 @@ pub async fn run_p2p(
     };
     let transport = {
         let mut quic_config = quic::Config::new(&local_key);
+
+        // Wormhole guardian nodes aren't upgraded to quic-v1 at the time of this writing,
+        // So an older version of quic is used here that is compatible with their guardian
+        // nodes. More details can be found in the following links:
+        // [draft-29 support](https://github.com/libp2p/rust-libp2p/pull/3151)
+        // [IETF quic draft-29](https://datatracker.ietf.org/doc/html/draft-ietf-quic-transport-29)
         quic_config.support_draft_29 = true;
+        
         let quic_transport = quic::tokio::Transport::new(quic_config);
         tokio::task::spawn_blocking(|| TokioDnsConfig::system(quic_transport))
             .await

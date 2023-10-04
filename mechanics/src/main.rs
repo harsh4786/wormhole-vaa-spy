@@ -143,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .expect("failed to send vaa: probably channel full?");
     });
 
-    // Running our p2p network
+    // Running our p2p connection handler
     let gk = Arc::new(ed_keyp);
     run_p2p(
         obs_send,
