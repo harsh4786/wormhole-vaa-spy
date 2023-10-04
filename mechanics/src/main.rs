@@ -1,8 +1,8 @@
-use clap::{Args, Parser, Subcommand};
+use clap::Parser;
 use ed25519_dalek::Keypair as EdKeypair;
 use libp2p::identity::Keypair;
 use std::{error::Error, sync::Arc};
-use theseus::server::{SpyRpcServiceConfig, SpyRpcServiceProvider};
+use theseus::{server::{SpyRpcServiceConfig, SpyRpcServiceProvider}, TheseusArgs, Run};
 use wormhole_protos::modules::{
     gossip::{SignedObservation, SignedVaaWithQuorum},
     spy::{
@@ -10,14 +10,13 @@ use wormhole_protos::modules::{
         SubscribeSignedVaaResponse,
     },
 };
-pub mod worm_p2p;
-use crate::worm_p2p::p2p::{Components, MAINNET_BOOTSTRAP_ADDRS};
+use theseus::worm_p2p::p2p::Components;
 use crossbeam_channel::Sender as CrossbeamSender;
 use rand::prelude::*;
 use serde_derive::Deserialize;
 use tokio::{runtime::Runtime, sync::oneshot};
 use tonic::transport::Server;
-use worm_p2p::p2p::run_p2p;
+use theseus::worm_p2p::p2p::run_p2p;
 
 #[allow(unused)]
 pub struct Spy {
@@ -68,30 +67,6 @@ impl SpyConfig {
         }
     }
 }
-#[derive(Debug, Parser)]
-#[clap(author, version, about)]
-struct TheseusArgs {
-    /// starts our node
-    #[clap(subcommand)]
-    pub run: Run,
-}
-#[derive(Subcommand, Debug)]
-pub enum Run {
-    Run {
-        // mainnet or devnet
-        #[arg(short, long, default_value = "/wormhole/mainnet/2")]
-        network: String,
-        // list of bootstrap nodes separated by a comma
-        #[arg(short, long, default_value = MAINNET_BOOTSTRAP_ADDRS)]
-        bootstrap: String,
-        // Listen address for gRPC interface
-        #[arg(short, long, default_value = "[::]:7073")]
-        spy: Option<String>,
-    },
-}
-
-#[derive(Args, Debug)]
-pub struct Params {}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

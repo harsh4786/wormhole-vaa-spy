@@ -121,7 +121,7 @@ impl SpyRpcServiceConfig {
         }
     }
 }
-
+#[allow(unused)]
 pub struct SpyRpcServiceProvider {
     config: SpyRpcServiceConfig,
     subscription_added_tx: Sender<SubscriptionAddedEvent>,
