@@ -1,3 +1,6 @@
+// This subscription stream design is inspired from Jito Foundations's geyser gRPC plugin implementation
+// which can be found in this [repository](https://github.com/jito-foundation/geyser-grpc-plugin)
+
 use std::{
     fmt::Display,
     pin::Pin,
