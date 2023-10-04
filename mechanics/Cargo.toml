@@ -19,7 +19,7 @@ crossbeam-channel = "0.5.8"
 uuid = {version = "1.4.1", features = ["v4", "fast-rng"]}
 log = "0.4.20"
 clap = { version = "4.3.12", features = ["derive"] }
-libp2p = { version = "0.52.2", features = ["tokio", "gossipsub", "macros", "quic","kad", "dns", "gossipsub", "ping"] }
+libp2p = { version = "0.52.3", features = ["tokio", "gossipsub", "macros", "quic","kad", "dns", "gossipsub", "ping"] }
 ed25519-dalek = "1.0.1"
 sha3 = "^0.10"
 bincode = "^1.3"

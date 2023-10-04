@@ -1,3 +1,4 @@
+use clap::Parser;
 use ed25519_dalek::Keypair as EdKeypair;
 use libp2p::identity::Keypair;
 use server::server::{SpyRpcServiceConfig, SpyRpcServiceProvider};
@@ -17,6 +18,7 @@ use tokio::{runtime::Runtime, sync::oneshot};
 use tonic::transport::Server;
 use worm_p2p::p2p::run_p2p;
 
+#[allow(unused)]
 pub struct Spy {
     runtime: Runtime,
     server_exit_sender: oneshot::Sender<()>,
@@ -65,22 +67,40 @@ impl SpyConfig {
         }
     }
 }
+#[derive(Debug, Parser)]
+struct Args{
+    // mainnet or devnet
+    #[clap(long)]
+    network: String,
+    // p2p UDP listener port
+    #[clap(long)]
+    p2p_port: u16,
+    // list of bootstrap nodes separated by a comma
+    #[clap(long)]
+    bootstrap: String,
+    // Listen address for gRPC interface
+    #[clap(long)]
+    spy: String,
+    // Timeout for sending a message to a subscriber
+    #[clap(long)]
+    timeout: u64
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     use rand::prelude::*;
-    let (obs_send, mut obs_recv) = tokio::sync::mpsc::channel(1024);
-    let (obs_req_send, obs_req_recv) = tokio::sync::mpsc::channel(1024);
-    let (_gossip_sendc, gossip_recvc) = tokio::sync::mpsc::channel(1024);
-    let (signedinc_s, mut signedinc_r) = tokio::sync::mpsc::channel(1024);
+    let (obs_send, mut obs_recv) = tokio::sync::mpsc::channel(8192);
+    let (obs_req_send, obs_req_recv) = tokio::sync::mpsc::channel(8192);
+    let (_gossip_sendc, gossip_recvc) = tokio::sync::mpsc::channel(8192);
+    let (signedinc_s, mut signedinc_r) = tokio::sync::mpsc::channel(8192);
     let rg = rand::rngs::OsRng::default();
     let mut rng = StdRng::from_rng(rg).unwrap();
     let ed_keyp = EdKeypair::generate(&mut rng);
     let keyp = Keypair::generate_ed25519();
 
-    let subscriber_buf_size = 1024usize;
-    let signed_obs_buf_size = 1024usize;
-    let signed_vaa_buf_size = 1024usize;
+    let subscriber_buf_size = 8192usize;
+    let signed_obs_buf_size = 8192usize;
+    let signed_vaa_buf_size = 8192usize;
     let bind_address = String::from("[::]:7073");
     let spy_rpc_config = SpyRpcServiceConfig::new(subscriber_buf_size);
     let service_confg = SpyConfig::new(
